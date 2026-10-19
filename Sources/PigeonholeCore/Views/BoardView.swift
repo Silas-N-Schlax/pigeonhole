@@ -230,6 +230,7 @@ private struct SlotColumn: View {
                 .padding(.bottom, 8)
             }
             .scrollIndicators(.never)
+            .followsSelection(in: prs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 10).fill(theme.slot))
@@ -241,14 +242,13 @@ private struct PRCard: View {
     @Environment(AppState.self) private var state
     @Environment(\.theme) private var theme
     @Environment(\.typography) private var type
-    @State private var hovering = false
     let pr: PullRequest
 
     var body: some View {
         let status = Status(pr)
         let tags = state.tags(for: pr)
         Button {
-            NSWorkspace.shared.open(pr.url)
+            pr.openCopyingBranch()
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 if !tags.isEmpty {
@@ -291,11 +291,11 @@ private struct PRCard: View {
             .padding(.horizontal, 11)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .card(radius: 8, highlighted: hovering)
+            .card(radius: 8, highlighted: state.selectedPR?.id == pr.id)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHover { if $0 { state.select(pr) } }
         .help("Open \(pr.fullRepo)#\(pr.number) in your browser")
     }
 }
@@ -355,6 +355,7 @@ private struct ReviewList: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
         }
+        .followsSelection(in: prs)
     }
 }
 
@@ -362,12 +363,11 @@ private struct ReviewRow: View {
     @Environment(AppState.self) private var state
     @Environment(\.theme) private var theme
     @Environment(\.typography) private var type
-    @State private var hovering = false
     let pr: PullRequest
 
     var body: some View {
         Button {
-            NSWorkspace.shared.open(pr.url)
+            pr.openCopyingBranch()
         } label: {
             HStack(spacing: 12) {
                 Text(pr.author.prefix(2).uppercased())
@@ -408,11 +408,11 @@ private struct ReviewRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .card(radius: 8, highlighted: hovering)
+            .card(radius: 8, highlighted: state.selectedPR?.id == pr.id)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHover { if $0 { state.select(pr) } }
     }
 }
 
@@ -424,7 +424,14 @@ private struct BoardFooter: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if let error = state.errorMessage, state.board != nil {
+            if let notice = state.notice {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(theme.accent)
+                Text(notice)
+                    .foregroundStyle(theme.dim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else if let error = state.errorMessage, state.board != nil {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(theme.danger)
                 Text(error)
@@ -443,15 +450,14 @@ private struct BoardFooter: View {
             }
             Spacer(minLength: 8)
             HStack(spacing: 4) {
-                Text(state.hotKey.display)
-                    .font(type.ui(10.5, .medium))
-                    .foregroundStyle(theme.dim)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(theme.control))
-                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.controlLine))
-                Text("to open")
+                KeyCap("↩")
+                Text("open")
+                KeyCap("C").padding(.leading, 4)
+                Text("copy branch")
+                KeyCap(state.hotKey.display).padding(.leading, 4)
+                Text("show/hide")
             }
+            .help("Arrow keys move between PRs. Tab switches tabs, R refreshes.")
             Button(action: openSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12.5))
@@ -465,5 +471,46 @@ private struct BoardFooter: View {
         .foregroundStyle(theme.faint)
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
+    }
+}
+
+private struct KeyCap: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var type
+    private let label: String
+
+    init(_ label: String) {
+        self.label = label
+    }
+
+    var body: some View {
+        Text(label)
+            .font(type.ui(10.5, .medium))
+            .foregroundStyle(theme.dim)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 4).fill(theme.control))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.controlLine))
+    }
+}
+
+private struct FollowsSelection: ViewModifier {
+    @Environment(AppState.self) private var state
+    let prs: [PullRequest]
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content.onChange(of: state.selectedPR?.id) { _, id in
+                guard let id, prs.contains(where: { $0.id == id }) else { return }
+                proxy.scrollTo(id)
+            }
+        }
+    }
+}
+
+private extension View {
+    /// Keeps the keyboard selection on screen in a long column.
+    func followsSelection(in prs: [PullRequest]) -> some View {
+        modifier(FollowsSelection(prs: prs))
     }
 }

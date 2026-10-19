@@ -21,8 +21,12 @@ public final class AppState {
     /// The clock the cards' ages read against. Moved on each refresh and
     /// each open rather than ticking, so an idle board does no work.
     public private(set) var now: Date = .now
-    public var tab: BoardTab = .mine
+    public var tab: BoardTab = .mine {
+        didSet { cursor = nil }
+    }
     public var filter = BoardFilter()
+    /// A short confirmation the footer shows in place of its usual line.
+    public private(set) var notice: String?
 
     public var themeID: String {
         didSet { defaults.set(themeID, forKey: AppConfig.Defaults.themeID) }
@@ -60,6 +64,8 @@ public final class AppState {
     private let defaults: UserDefaults
     private let tagStore: TagStore
     private var ticker: Task<Void, Never>?
+    private var cursor: BoardCursor?
+    private var noticeTask: Task<Void, Never>?
 
     public convenience init() {
         self.init(
@@ -116,6 +122,8 @@ public final class AppState {
 
     public func boardDidOpen() {
         now = .now
+        cursor = nil
+        notice = nil
         let stale = lastUpdated.map { now.timeIntervalSince($0) > AppConfig.Refresh.staleAfter } ?? true
         if stale { Task { await refresh() } }
     }
@@ -222,6 +230,55 @@ public final class AppState {
     }
 
     public var reviewCount: Int { reviews.count }
+
+    // MARK: - Keyboard
+
+    /// The visible PRs in keyboard order: one column per slot, or a single
+    /// column for the review list.
+    private var columns: [[PullRequest]] {
+        tab == .mine ? Slot.allCases.map(visible(in:)) : [visibleReviews]
+    }
+
+    public var selectedPR: PullRequest? {
+        let columns = columns
+        guard let cursor = cursor?.resolved(in: columns) else { return nil }
+        return columns[cursor.column][cursor.row]
+    }
+
+    public func select(_ pr: PullRequest) {
+        cursor = BoardCursor.on(pr.id, in: columns)
+    }
+
+    public func perform(_ command: BoardCommand) {
+        switch command {
+        case .move(let move):
+            let columns = columns
+            cursor = cursor?.resolved(in: columns)?.moved(move, in: columns)
+                ?? BoardCursor.first(in: columns)
+        case .open:
+            selectedPR?.openCopyingBranch()
+        case .copyBranch:
+            guard let pr = selectedPR else { return }
+            pr.copyBranch()
+            flash("Copied \(pr.branch)")
+        case .switchTab:
+            tab = tab == .mine ? .reviews : .mine
+        case .showTab(let target):
+            tab = target
+        case .refresh:
+            Task { await refresh() }
+        }
+    }
+
+    private func flash(_ text: String) {
+        notice = text
+        noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(AppConfig.Board.noticeSeconds))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
 
     public func tags(for pr: PullRequest) -> [Tag] {
         tags.filter { $0.holds(pr.fullRepo) }

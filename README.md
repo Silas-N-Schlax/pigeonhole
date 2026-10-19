@@ -16,8 +16,11 @@ the menu bar.
   your own tags.
 - **Tags** for repos you care about, with a name and color, shown on every
   card. Filter by a tag or by Untagged.
-- **Click a card** to open the PR in your browser. **⌥⌘P** (changeable)
-  pops the board open from anywhere.
+- **Click a card** to open the PR in your browser and copy its branch name.
+  **⌥⌘P** (changeable) shows or hides the board from anywhere.
+- **Keyboard driven.** Arrow keys move between cards, Return opens one, C
+  copies its branch, Tab (or 1 and 2) switches tabs, R refreshes, Escape
+  closes.
 - **Activity window.** By default only PRs with activity in the last 30 days
   show. You can pick 14, 60 or 90 days, a year, or everything.
 - Six themes, two light and four dark, plus six font pairs and three text

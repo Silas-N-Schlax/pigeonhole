@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// item takes key first, so without this the click that should close
     /// the board would hide it and then open it straight back up.
     private var lastHiddenAt = Date.distantPast
+    /// The app that was in front when the board opened, so closing the
+    /// board on purpose hands focus back to it.
+    private var previousApp: NSRunningApplication?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -38,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         board = makeBoardWindow()
 
-        HotKeyCenter.shared.onPress = { [weak self] in self?.toggleBoard() }
+        HotKeyCenter.shared.onPress = { [weak self] in self?.toggleBoard(returningFocus: true) }
         HotKeyCenter.shared.register(state.hotKey)
         state.onHotKeyChange = { HotKeyCenter.shared.register($0) }
 
@@ -53,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let root = ThemedRoot {
             BoardView(
                 openSettings: { [weak self] in self?.showSettings() },
-                close: { [weak self] in self?.hideBoard() }
+                close: { [weak self] in self?.hideBoard(returningFocus: true) }
             )
         }
         .environment(state)
@@ -83,19 +86,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    private func toggleBoard() {
-        if board.isVisible { hideBoard() } else { showBoard() }
+    private func toggleBoard(returningFocus: Bool = false) {
+        if board.isVisible { hideBoard(returningFocus: returningFocus) } else { showBoard() }
     }
 
     private func showBoard() {
+        let front = NSWorkspace.shared.frontmostApplication
+        previousApp = front == .current ? nil : front
         positionUnderStatusItem()
         state.boardDidOpen()
         NSApp.activate(ignoringOtherApps: true)
         board.makeKeyAndOrderFront(nil)
     }
 
-    private func hideBoard() {
+    /// Only the shortcut and Escape return focus. Clicking away already
+    /// put another app in front, and Settings wants it for itself.
+    private func hideBoard(returningFocus: Bool = false) {
         board.orderOut(nil)
+        if returningFocus, let previousApp, !previousApp.isTerminated {
+            previousApp.activate()
+        }
+        previousApp = nil
     }
 
     /// A local monitor rather than SwiftUI's onKeyPress, which only hears

@@ -80,9 +80,44 @@ public struct GitHubAPI: GitHubClient {
         return data.board
     }
 
+    /// Yours first, then each org's, then repos you've only contributed to.
     public func fetchRepos() async throws -> RepoCatalog {
-        let data: ReposData = try await post(Queries.repos, variables: [:])
-        return data.catalog
+        let first: ReposData = try await post(Queries.repos, variables: [:])
+        var own = first.viewer.repositories.repos
+        var after = first.viewer.repositories.next
+        for _ in 1..<AppConfig.Search.maxRepoPages {
+            guard let cursor = after else { break }
+            let page: ReposData = try await post(Queries.repos, variables: ["after": cursor])
+            own += page.viewer.repositories.repos
+            after = page.viewer.repositories.next
+        }
+        let orgs = first.viewer.organizations.items.map(\.login)
+        let orgRepos = await withTaskGroup(of: (Int, [String]).self) { group in
+            for (index, org) in orgs.enumerated() {
+                group.addTask { (index, await repos(inOrg: org)) }
+            }
+            var found = [[String]](repeating: [], count: orgs.count)
+            for await (index, repos) in group { found[index] = repos }
+            return found.flatMap { $0 }
+        }
+        return RepoCatalog(repos: own + orgRepos + first.viewer.repositoriesContributedTo.repos)
+    }
+
+    /// An org that hasn't authorized the token for SSO errors out on its
+    /// own, so it drops from the list rather than failing the rest.
+    private func repos(inOrg login: String) async -> [String] {
+        var repos: [String] = []
+        var after: String?
+        for _ in 0..<AppConfig.Search.maxRepoPages {
+            var variables = ["login": login]
+            variables["after"] = after
+            guard let data: OrgReposData = try? await post(Queries.orgRepos, variables: variables),
+                  let page = data.organization?.repositories else { break }
+            repos += page.repos
+            after = page.next
+            if after == nil { break }
+        }
+        return repos
     }
 
     private func post<T: Decodable>(_ query: String, variables: [String: String]) async throws -> T {

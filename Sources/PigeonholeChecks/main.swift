@@ -215,19 +215,35 @@ check("errors with no data throw the first message") {
     }
 }
 
-check("repo catalog splits own from contributed without repeats") {
+check("repo catalog drops repeats and keeps first-seen order") {
+    let catalog = RepoCatalog(repos: ["me/a", "org/x", "me/a", "Org/X"]).adding(["me/c", "org/x", "new/z"])
+    expect(catalog.repos == ["me/a", "org/x", "me/c", "new/z"], "\(catalog.repos)")
+}
+
+check("repo catalog lists your account first, then owners A to Z") {
+    let catalog = RepoCatalog(repos: ["zeta/a", "me/b", "Alpha/c", "me/d"])
+    expect(catalog.owners(viewer: "me") == ["me", "Alpha", "zeta"], "\(catalog.owners(viewer: "me"))")
+    expect(catalog.owners(viewer: "nobody") == ["Alpha", "me", "zeta"], "\(catalog.owners(viewer: "nobody"))")
+}
+
+check("repo search needs every word, in any order") {
+    expect(RepoCatalog.matches("RoleModel/sayfa_portal", query: ""), "empty query")
+    expect(RepoCatalog.matches("RoleModel/sayfa_portal", query: "portal role"), "reordered words")
+    expect(!RepoCatalog.matches("RoleModel/sayfa_portal", query: "portal kombi"), "missing word")
+}
+
+check("repo pages decode with their cursor") {
     let body = """
     {"data":{"viewer":{"login":"me",
-     "owned":{"nodes":[{"nameWithOwner":"me/a"},{"nameWithOwner":"me/b"}]},
-     "member":{"nodes":[{"nameWithOwner":"org/x"},{"nameWithOwner":"me/a"}]},
-     "contributed":{"nodes":[{"nameWithOwner":"org/x"},{"nameWithOwner":"other/y"}]}}}}
+     "repositories":{"pageInfo":{"hasNextPage":true,"endCursor":"abc"},"nodes":[{"nameWithOwner":"me/a"},null]},
+     "organizations":{"nodes":[{"login":"org"}]},
+     "repositoriesContributedTo":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"nameWithOwner":"other/y"}]}}}}
     """
-    let catalog = try GraphQL.decode(ReposData.self, from: Data(body.utf8)).catalog
-    expect(catalog.own == ["me/a", "me/b"], "\(catalog.own)")
-    expect(catalog.contributed == ["org/x", "other/y"], "\(catalog.contributed)")
-    let widened = catalog.adding(["me/c", "org/x", "new/z"], viewer: "me")
-    expect(widened.own == ["me/a", "me/b", "me/c"], "\(widened.own)")
-    expect(widened.contributed == ["org/x", "other/y", "new/z"], "\(widened.contributed)")
+    let viewer = try GraphQL.decode(ReposData.self, from: Data(body.utf8)).viewer
+    expect(viewer.repositories.repos == ["me/a"], "\(viewer.repositories.repos)")
+    expect(viewer.repositories.next == "abc", "cursor")
+    expect(viewer.organizations.items.map(\.login) == ["org"], "orgs")
+    expect(viewer.repositoriesContributedTo.next == nil, "last page")
 }
 
 // MARK: - Local branches
@@ -389,7 +405,7 @@ struct FakeGitHub: GitHubClient {
     let board: Board
 
     func fetchBoard() async throws -> Board { board }
-    func fetchRepos() async throws -> RepoCatalog { RepoCatalog(own: ["me/a"], contributed: []) }
+    func fetchRepos() async throws -> RepoCatalog { RepoCatalog(repos: ["me/a"]) }
 }
 
 await check("refresh fills the slots, and tags follow their repos") {

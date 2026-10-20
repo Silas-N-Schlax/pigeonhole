@@ -22,14 +22,34 @@ enum Queries {
     }
     """
 
+    /// Your own and collaborator repos page through here. Org repos come
+    /// from `orgRepos`, since the ORGANIZATION_MEMBER affiliation leaves out
+    /// most of what membership lets you see.
     static let repos = """
-    query {
+    query($after: String) {
       viewer {
         login
-        owned: repositories(first: 100, ownerAffiliations: [OWNER], orderBy: {field: PUSHED_AT, direction: DESC}) { nodes { nameWithOwner } }
-        member: repositories(first: 100, ownerAffiliations: [COLLABORATOR, ORGANIZATION_MEMBER], orderBy: {field: PUSHED_AT, direction: DESC}) { nodes { nameWithOwner } }
-        contributed: repositoriesContributedTo(first: 100, includeUserRepositories: false, contributionTypes: [COMMIT, PULL_REQUEST, PULL_REQUEST_REVIEW, REPOSITORY], orderBy: {field: PUSHED_AT, direction: DESC}) { nodes { nameWithOwner } }
+        repositories(first: 100, after: $after, ownerAffiliations: [OWNER, COLLABORATOR], orderBy: {field: PUSHED_AT, direction: DESC}) { ...page }
+        organizations(first: 100) { nodes { login } }
+        repositoriesContributedTo(first: 100, includeUserRepositories: false, contributionTypes: [COMMIT, PULL_REQUEST, PULL_REQUEST_REVIEW, REPOSITORY], orderBy: {field: PUSHED_AT, direction: DESC}) { ...page }
       }
+    }
+    \(repoPage)
+    """
+
+    static let orgRepos = """
+    query($login: String!, $after: String) {
+      organization(login: $login) {
+        repositories(first: 100, after: $after, orderBy: {field: PUSHED_AT, direction: DESC}) { ...page }
+      }
+    }
+    \(repoPage)
+    """
+
+    private static let repoPage = """
+    fragment page on RepositoryConnection {
+      pageInfo { hasNextPage endCursor }
+      nodes { nameWithOwner }
     }
     """
 }
@@ -170,27 +190,38 @@ struct PRNode: Decodable {
     }
 }
 
-struct ReposData: Decodable {
+struct RepoPage: Decodable {
+    struct PageInfo: Decodable {
+        let hasNextPage: Bool
+        let endCursor: String?
+    }
+
     struct NameWithOwner: Decodable {
         let nameWithOwner: String
     }
 
+    let pageInfo: PageInfo
+    let nodes: [Lossy<NameWithOwner>]
+
+    var repos: [String] { nodes.compactMap(\.value?.nameWithOwner) }
+    var next: String? { pageInfo.hasNextPage ? pageInfo.endCursor : nil }
+}
+
+struct ReposData: Decodable {
     struct Viewer: Decodable {
         let login: String
-        let owned: Nodes<NameWithOwner>
-        let member: Nodes<NameWithOwner>
-        let contributed: Nodes<NameWithOwner>
+        let repositories: RepoPage
+        let organizations: Nodes<Login>
+        let repositoriesContributedTo: RepoPage
     }
 
     let viewer: Viewer
+}
 
-    var catalog: RepoCatalog {
-        let own = viewer.owned.items.map(\.nameWithOwner)
-        var contributed: [String] = []
-        for repo in (viewer.member.items + viewer.contributed.items).map(\.nameWithOwner)
-        where !own.contains(repo) && !contributed.contains(repo) {
-            contributed.append(repo)
-        }
-        return RepoCatalog(own: own, contributed: contributed)
+struct OrgReposData: Decodable {
+    struct Organization: Decodable {
+        let repositories: RepoPage
     }
+
+    let organization: Organization?
 }

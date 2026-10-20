@@ -56,10 +56,10 @@ struct SampleGitHub: GitHubClient {
     func fetchBoard() async throws -> Board { board }
 
     func fetchRepos() async throws -> RepoCatalog {
-        RepoCatalog(
-            own: ["\(viewer)/pigeonhole", "\(viewer)/abacus", "\(viewer)/keystats", "\(viewer)/switchboard"],
-            contributed: ["northwind/web", "northwind/api", "fieldkit/site"]
-        )
+        RepoCatalog(repos: [
+            "\(viewer)/pigeonhole", "\(viewer)/abacus", "\(viewer)/keystats", "\(viewer)/switchboard",
+            "northwind/web", "northwind/api", "northwind/billing", "northwind/infra", "fieldkit/site",
+        ])
     }
 }
 

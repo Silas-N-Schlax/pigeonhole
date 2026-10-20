@@ -16,7 +16,8 @@ the menu bar.
 - **Every org at once.** Filter by owner (All, Personal, or one org) and by
   your own tags.
 - **Tags** for repos you care about, with a name and color, shown on every
-  card. Filter by a tag or by Untagged.
+  card. Filter by a tag or by Untagged. The repo picker lists every repo in
+  your account and each of your orgs, searchable and filterable by owner.
 - **Click a card** to open the PR in your browser and copy its branch name.
   A pushed branch opens GitHub's compare page, ready for its PR; one that
   isn't pushed yet opens its clone in Finder. **⌥⌘P** (changeable) shows or
@@ -42,7 +43,8 @@ the menu bar.
 </p>
 
 Branches come from the folders picked in Settings (by default `~/code`,
-`~/Developer`, `~/Projects`, `~/src` or `~/dev`, whichever exist), searched
+`~/Developer`, `~/Projects`, `~/src` or `~/dev`, whichever exist, plus any
+other folder in your home that holds a clone), searched
 three folders deep for clones with a GitHub `origin`. A branch counts as
 yours when its newest commit's author matches the repo's `user.email`.
 Pigeonhole skips the default branch, branches whose upstream is gone, and

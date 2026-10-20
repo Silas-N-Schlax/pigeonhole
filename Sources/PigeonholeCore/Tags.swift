@@ -65,11 +65,11 @@ public struct BoardFilter: Equatable {
         self.tag = tag
     }
 
-    public func matches(_ pr: PullRequest, viewer: String, tags: [Tag]) -> Bool {
+    public func matches(_ pr: some RepoScoped, viewer: String, tags: [Tag]) -> Bool {
         Self.matches(pr, owner: owner, viewer: viewer) && Self.matches(pr, tag: tag, tags: tags)
     }
 
-    static func matches(_ pr: PullRequest, owner: OwnerFilter, viewer: String) -> Bool {
+    static func matches(_ pr: some RepoScoped, owner: OwnerFilter, viewer: String) -> Bool {
         switch owner {
         case .all: true
         case .personal: pr.owner.caseInsensitiveCompare(viewer) == .orderedSame
@@ -77,7 +77,7 @@ public struct BoardFilter: Equatable {
         }
     }
 
-    static func matches(_ pr: PullRequest, tag: TagFilter, tags: [Tag]) -> Bool {
+    static func matches(_ pr: some RepoScoped, tag: TagFilter, tags: [Tag]) -> Bool {
         switch tag {
         case .any: true
         case .untagged: !tags.contains { $0.holds(pr.fullRepo) }

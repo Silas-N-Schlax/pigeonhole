@@ -2,10 +2,13 @@ import Foundation
 
 enum Queries {
     static let board = """
-    query($mine: String!, $review: String!) {
+    query($mine: String!, $review: String!, $closed: String!) {
       viewer { login }
       mine: search(query: $mine, type: ISSUE, first: \(AppConfig.Search.pageSize)) { nodes { ...pr } }
       review: search(query: $review, type: ISSUE, first: \(AppConfig.Search.pageSize)) { nodes { ...pr } }
+      closed: search(query: $closed, type: ISSUE, first: \(AppConfig.Search.pageSize)) {
+        nodes { ... on PullRequest { headRefName repository { name owner { login } } } }
+      }
     }
     fragment pr on PullRequest {
       id number title url isDraft updatedAt headRefName additions deletions
@@ -77,14 +80,23 @@ struct BoardData: Decodable {
     let viewer: Login
     let mine: Nodes<PRNode>
     let review: Nodes<PRNode>
+    let closed: Nodes<HeadNode>
 
     var board: Board {
         Board(
             viewer: viewer.login,
             mine: mine.items.map(\.pullRequest),
-            reviews: review.items.map(\.pullRequest)
+            reviews: review.items.map(\.pullRequest),
+            closedHeads: Set(closed.items.map(\.key))
         )
     }
+}
+
+struct HeadNode: Decodable {
+    let headRefName: String
+    let repository: PRNode.Repository
+
+    var key: String { Branch.key(owner: repository.owner.login, repo: repository.name, name: headRefName) }
 }
 
 struct PRNode: Decodable {

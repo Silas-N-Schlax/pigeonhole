@@ -177,6 +177,10 @@ let sample = """
    "reviewDecision":null,"reviewRequests":{"totalCount":2},
    "latestOpinionatedReviews":{"nodes":[]},"reviewThreads":{"nodes":[]},
    "commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]}}
+ ]},
+ "closed":{"nodes":[
+  {"headRefName":"old-work","repository":{"name":"Web","owner":{"login":"Northwind"}}},
+  null
  ]}},
  "errors":[{"message":"Resource protected by organization SAML enforcement."}]}
 """
@@ -198,6 +202,7 @@ check("board decodes, skipping nulls and non-PR nodes, keeping data past errors"
     expect(review.checks == .none, "no checks")
     expect(review.pendingReviewers == 2, "pending")
     expect(review.isDraft, "draft")
+    expect(board.closedHeads == ["northwind/web:old-work"], "\(board.closedHeads)")
 }
 
 check("errors with no data throw the first message") {
@@ -223,6 +228,76 @@ check("repo catalog splits own from contributed without repeats") {
     let widened = catalog.adding(["me/c", "org/x", "new/z"], viewer: "me")
     expect(widened.own == ["me/a", "me/b", "me/c"], "\(widened.own)")
     expect(widened.contributed == ["org/x", "other/y", "new/z"], "\(widened.contributed)")
+}
+
+// MARK: - Local branches
+
+check("GitHub remotes in every shape git writes them") {
+    let shapes = [
+        "https://github.com/northwind/web.git",
+        "https://someone@github.com/northwind/web",
+        "git@github.com:northwind/web.git",
+        "ssh://git@github.com/northwind/web.git",
+        "git@github.com-work:northwind/web.git\n",
+    ]
+    for shape in shapes {
+        let parsed = LocalBranches.gitHubRepo(fromRemote: shape)
+        expect(parsed?.owner == "northwind" && parsed?.repo == "web", "\(shape) gave \(String(describing: parsed))")
+    }
+    expect(LocalBranches.gitHubRepo(fromRemote: "git@gitlab.com:northwind/web.git") == nil, "not GitHub")
+}
+
+let refs = [
+    "refs/heads/main\t1790000000\t<me@x.com>\t\t",
+    "refs/heads/menus\t1790000500\t<Me@X.com>\t\t",
+    "refs/heads/merged\t1790000600\t<me@x.com>\t\t[gone]",
+    "refs/heads/review-kai\t1790000700\t<kai@x.com>\t\t",
+    "refs/remotes/origin/HEAD\t1790000000\t<me@x.com>\trefs/remotes/origin/develop\t",
+    "refs/remotes/origin/develop\t1790000000\t<me@x.com>\t\t",
+    "refs/remotes/origin/menus\t1790000900\t<me@x.com>\t\t",
+    "refs/remotes/origin/pushed-only\t1790000800\t<me@x.com>\t\t",
+].joined(separator: "\n")
+let clone = URL(fileURLWithPath: "/tmp/web")
+
+check("branches: yours, minus the default branch and gone upstreams") {
+    let branches = LocalBranches.parse(refs: refs, owner: "northwind", repo: "web", directory: clone, email: "me@x.com")
+    expect(branches.map(\.name) == ["menus", "pushed-only", "main"], "\(branches.map(\.name))")
+    let menus = branches[0]
+    expect(menus.isPushed, "menus is pushed")
+    expect(menus.updatedAt == Date(timeIntervalSince1970: 1_790_000_900), "newest of local and pushed")
+    expect(branches.contains { $0.name == "main" && !$0.isPushed }, "main isn't the default here")
+}
+
+check("branches without an email keep only the local ones") {
+    let branches = LocalBranches.parse(refs: refs, owner: "northwind", repo: "web", directory: clone, email: nil)
+    expect(Set(branches.map(\.name)) == ["main", "menus", "review-kai"], "\(branches.map(\.name))")
+}
+
+check("branch keys ignore the case of the repo but not the branch") {
+    expect(Branch.key(owner: "Northwind", repo: "Web", name: "Menus") == "northwind/web:Menus", "key")
+    let branch = Branch(owner: "northwind", repo: "web", name: "fix/menus", directory: clone, updatedAt: base, isPushed: true)
+    expect(branch.url?.absoluteString == "https://github.com/northwind/web/compare/fix/menus", "\(String(describing: branch.url))")
+    let local = Branch(owner: "northwind", repo: "web", name: "x", directory: clone, updatedAt: base, isPushed: false)
+    expect(local.url == nil, "nothing to open on GitHub before a push")
+    expect(Status(local).label == "Local only" && Status(branch).label == "Pushed · no PR", "labels")
+}
+
+check("finding repos stops at each clone and skips dependency folders") {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pigeonhole-checks-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let make = { (path: String) in
+        try? FileManager.default.createDirectory(
+            at: root.appendingPathComponent(path), withIntermediateDirectories: true
+        )
+    }
+    make("work/web/.git")
+    make("work/web/packages/inner/.git")
+    make("work/api/node_modules/dep/.git")
+    make("side/a/b/c/too-deep/.git")
+    make("solo/.git")
+    let found = LocalBranches.repositories(in: [root]).map(\.lastPathComponent).sorted()
+    expect(found == ["solo", "web"], "\(found)")
 }
 
 // MARK: - Tags on disk
@@ -257,8 +332,9 @@ check("hot key display order") {
 
 check("cursor starts on the first card of the first filled column") {
     let a = pr("a")
-    expect(BoardCursor.first(in: [[], [a], []])?.id == a.id, "first")
-    expect(BoardCursor.first(in: [[], []]) == nil, "nothing to select")
+    let none: [PullRequest] = []
+    expect(BoardCursor.first(in: [none, [a], none])?.id == a.id, "first")
+    expect(BoardCursor.first(in: [none, none]) == nil, "nothing to select")
 }
 
 check("cursor moves sideways past empty columns, keeping its row when it can") {
@@ -286,8 +362,9 @@ check("cursor follows its PR across columns, and lands nearby when it's gone") {
     let cursor = BoardCursor.on(b.id, in: [[a, b], [c]])!
     expect(cursor.resolved(in: [[a], [c, b]])?.id == b.id, "moved column")
     expect(cursor.resolved(in: [[a], [c]])?.id == a.id, "gone: same column, row clamped")
-    expect(cursor.resolved(in: [[], [c]])?.id == c.id, "gone: nearest filled column")
-    expect(cursor.resolved(in: [[], []]) == nil, "board emptied")
+    let none: [PullRequest] = []
+    expect(cursor.resolved(in: [none, [c]])?.id == c.id, "gone: nearest filled column")
+    expect(cursor.resolved(in: [none, none]) == nil, "board emptied")
 }
 
 check("keys map to commands, and ⌘ chords are left alone") {
@@ -303,6 +380,10 @@ check("keys map to commands, and ⌘ chords are left alone") {
 }
 
 // MARK: - AppState against a fake GitHub
+
+func branch(_ name: String, owner: String = "me", repo: String = "a", pushed: Bool = false) -> Branch {
+    Branch(owner: owner, repo: repo, name: name, directory: clone, updatedAt: base, isPushed: pushed)
+}
 
 struct FakeGitHub: GitHubClient {
     let board: Board
@@ -374,21 +455,93 @@ await check("keyboard selection walks the visible board and resets on tab and op
     await MainActor.run { state.activityWindow = .all }
     await state.refresh()
     await MainActor.run {
-        expect(state.selectedPR == nil, "nothing selected until a key")
+        expect(state.selectedItem == nil, "nothing selected until a key")
         state.perform(.move(.down))
-        expect(state.selectedPR?.title == "draft", "first press picks the first card")
+        expect(state.selectedItem?.title == "draft", "first press picks the first card")
         state.perform(.move(.right))
-        expect(state.selectedPR?.title == "ready", "skips the empty In review column")
+        expect(state.selectedItem?.title == "ready", "skips the empty In review column")
         state.filter.owner = .personal
-        expect(state.selectedPR?.title == "draft", "filtered away, lands on the neighbour")
+        expect(state.selectedItem?.title == "draft", "filtered away, lands on the neighbour")
         state.filter.owner = .all
 
         state.perform(.switchTab)
-        expect(state.tab == .reviews && state.selectedPR == nil, "tab switch clears")
+        expect(state.tab == .reviews && state.selectedItem == nil, "tab switch clears")
         state.perform(.move(.down))
-        expect(state.selectedPR?.title == "theirs", "review list")
+        expect(state.selectedItem?.title == "theirs", "review list")
         state.boardDidOpen()
-        expect(state.selectedPR == nil, "opening clears")
+        expect(state.selectedItem == nil, "opening clears")
+    }
+}
+
+await check("branches without a PR join In progress, and hidden cards leave") {
+    let defaults = UserDefaults(suiteName: "pigeonhole-checks-\(UUID().uuidString)")!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pigeonhole-checks-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var open = pr("open", owner: "me", repo: "a", draft: true)
+    open = PullRequest(
+        id: open.id, number: 2, title: open.title, url: open.url, owner: "Me", repo: "A",
+        branch: "has-pr", author: open.author, isDraft: true, updatedAt: base.addingTimeInterval(10),
+        reviewDecision: nil, pendingReviewers: 0, approvals: 0, unresolvedThreads: 0,
+        checks: .none, additions: 0, deletions: 0
+    )
+    let ready = pr("ready", owner: "org", repo: "x", decision: .approved, approvals: 1)
+    let fake = FakeGitHub(board: Board(
+        viewer: "me", mine: [open, ready], reviews: [], closedHeads: ["me/a:merged"]
+    ))
+    let scanned = [branch("has-pr"), branch("merged"), branch("fresh", pushed: true), branch("side", owner: "org", repo: "x")]
+    let state = AppState(
+        connect: { fake }, defaults: defaults, tagStore: TagStore(directory: directory),
+        scanBranches: { _ in scanned }
+    )
+    await MainActor.run {
+        state.activityWindow = .all
+        expect(state.visible(in: .inProgress).isEmpty, "no branches before the board loads")
+    }
+    await state.refresh()
+    await MainActor.run {
+        let titles = state.visible(in: .inProgress).map(\.title)
+        expect(titles == ["open", "fresh", "side"], "\(titles)")
+        state.filter.owner = .owner("org")
+        expect(state.visible(in: .inProgress).map(\.title) == ["side"], "owner filter applies to branches")
+        expect(state.count(owner: .owner("org")) == 2, "counts include branches")
+        state.filter.owner = .all
+
+        state.activityWindow = .days14
+        expect(state.visible(in: .inProgress).isEmpty, "branches keep to the activity window")
+        state.activityWindow = .all
+
+        state.hide(.branch(branch("fresh", pushed: true)))
+        state.hide(.pullRequest(ready))
+        state.hide(.pullRequest(ready))
+        expect(state.visible(in: .inProgress).map(\.title) == ["open", "side"], "hidden branch")
+        expect(state.visible(in: .needsAction).isEmpty, "hidden PR")
+        expect(state.needsActionCount == 0, "hidden PRs don't light the dot")
+        expect(state.hidden.map(\.label) == ["me/a · fresh", "org/x#1 ready"], "\(state.hidden.map(\.label))")
+
+        let reopened = AppState(connect: { fake }, defaults: defaults, tagStore: TagStore(directory: directory))
+        expect(reopened.hidden == state.hidden, "hidden survives a restart")
+
+        state.unhide(branch("fresh").id)
+        expect(state.visible(in: .inProgress).map(\.title) == ["open", "fresh", "side"], "unhidden")
+    }
+}
+
+await check("cursor walks onto branch cards and copies their name") {
+    let defaults = UserDefaults(suiteName: "pigeonhole-checks-\(UUID().uuidString)")!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pigeonhole-checks-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fake = FakeGitHub(board: Board(viewer: "me", mine: [], reviews: []))
+    let state = AppState(
+        connect: { fake }, defaults: defaults, tagStore: TagStore(directory: directory),
+        scanBranches: { _ in [branch("solo")] }
+    )
+    await MainActor.run { state.activityWindow = .all }
+    await state.refresh()
+    await MainActor.run {
+        state.perform(.move(.down))
+        expect(state.selectedItem?.branchName == "solo", "branch selected")
     }
 }
 

@@ -75,6 +75,7 @@ public struct GitHubAPI: GitHubClient {
         let data: BoardData = try await post(Queries.board, variables: [
             "mine": AppConfig.Search.mine,
             "review": AppConfig.Search.reviews,
+            "closed": AppConfig.Search.closed,
         ])
         return data.board
     }

@@ -105,10 +105,15 @@ private struct GeneralPane: View {
                     items: ActivityWindow.allCases.map { SegmentItem(id: $0, label: $0.label) },
                     selection: $state.activityWindow
                 )
-                Text("Older PRs stay hidden until someone pushes, comments or reviews.")
+                Text("Older PRs stay hidden until someone pushes, comments or reviews. Branches go by their last commit.")
                     .font(type.ui(11.5))
                     .foregroundStyle(theme.faint)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
+            BranchFolders()
+
+            HiddenCards()
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Behavior")
@@ -145,6 +150,114 @@ private struct GeneralPane: View {
             } catch {
                 loginError = "macOS said no: \(error.localizedDescription)"
                 opensAtLogin = state.opensAtLogin
+            }
+        }
+    }
+}
+
+/// Where Pigeonhole looks for clones whose branches have no PR yet.
+private struct BranchFolders: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var type
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("Branches without a PR")
+            VStack(spacing: 0) {
+                ForEach(state.branchFolders, id: \.self) { folder in
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(theme.faint)
+                        Text((folder as NSString).abbreviatingWithTildeInPath)
+                            .font(type.mono(12))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 6)
+                        Button {
+                            state.branchFolders.removeAll { $0 == folder }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(theme.faint)
+                                .frame(width: 20, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Stop looking here")
+                        .accessibilityLabel("Remove \(folder)")
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    theme.cardLine.frame(height: 1)
+                }
+                Button(action: pickFolders) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus").font(.system(size: 10.5, weight: .semibold))
+                        Text("Add folder…").font(type.ui(12.5, .medium))
+                        Spacer()
+                    }
+                    .foregroundStyle(theme.accent)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .card()
+            Text("Your branches in clones up to \(AppConfig.Branches.searchDepth) folders down join In progress until they get a PR.")
+                .font(type.ui(11.5))
+                .foregroundStyle(theme.faint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func pickFolders() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Add"
+        guard panel.runModal() == .OK else { return }
+        let picked = panel.urls.map(\.path).filter { !state.branchFolders.contains($0) }
+        state.branchFolders += picked
+    }
+}
+
+private struct HiddenCards: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var type
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("Hidden")
+            if state.hidden.isEmpty {
+                Text("Right click a card on the board to hide it. It'll wait here.")
+                    .font(type.ui(11.5))
+                    .foregroundStyle(theme.faint)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(state.hidden.enumerated()), id: \.element.id) { index, item in
+                        if index > 0 { theme.cardLine.frame(height: 1) }
+                        HStack(spacing: 8) {
+                            Text(item.label)
+                                .font(type.ui(12.5))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 6)
+                            Button("Show") { state.unhide(item.id) }
+                                .buttonStyle(.plain)
+                                .font(type.ui(12, .medium))
+                                .foregroundStyle(theme.accent)
+                                .accessibilityLabel("Show \(item.label)")
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                    }
+                }
+                .card()
             }
         }
     }

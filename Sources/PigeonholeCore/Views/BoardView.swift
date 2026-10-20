@@ -38,7 +38,7 @@ public struct BoardView: View {
         } else if state.tab == .mine {
             HStack(spacing: 10) {
                 ForEach(Slot.allCases) { slot in
-                    SlotColumn(slot: slot, prs: state.visible(in: slot))
+                    SlotColumn(slot: slot, items: state.visible(in: slot))
                 }
             }
             .padding(.horizontal, 14)
@@ -199,14 +199,14 @@ private struct SlotColumn: View {
     @Environment(\.theme) private var theme
     @Environment(\.typography) private var type
     let slot: Slot
-    let prs: [PullRequest]
+    let items: [BoardItem]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
                 Dot(color: theme.dot(slot))
                 SectionLabel(slot.title)
-                Text("\(prs.count)")
+                Text("\(items.count)")
                     .font(type.ui(11))
                     .monospacedDigit()
                     .foregroundStyle(theme.faint)
@@ -216,10 +216,13 @@ private struct SlotColumn: View {
             .padding(.bottom, 8)
             ScrollView {
                 LazyVStack(spacing: 7) {
-                    ForEach(prs) { pr in
-                        PRCard(pr: pr)
+                    ForEach(items) { item in
+                        switch item {
+                        case .pullRequest(let pr): PRCard(pr: pr)
+                        case .branch(let branch): BranchCard(branch: branch)
+                        }
                     }
-                    if prs.isEmpty {
+                    if items.isEmpty {
                         Text("Nothing in this slot")
                             .font(type.ui(12))
                             .foregroundStyle(theme.faint)
@@ -230,7 +233,7 @@ private struct SlotColumn: View {
                 .padding(.bottom, 8)
             }
             .scrollIndicators(.never)
-            .followsSelection(in: prs)
+            .followsSelection(in: items.map(\.id))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 10).fill(theme.slot))
@@ -247,8 +250,9 @@ private struct PRCard: View {
     var body: some View {
         let status = Status(pr)
         let tags = state.tags(for: pr)
+        let item = BoardItem.pullRequest(pr)
         Button {
-            pr.openCopyingBranch()
+            item.openCopyingBranch()
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 if !tags.isEmpty {
@@ -291,23 +295,90 @@ private struct PRCard: View {
             .padding(.horizontal, 11)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .card(radius: 8, highlighted: state.selectedPR?.id == pr.id)
+            .card(radius: 8, highlighted: state.selectedItem?.id == item.id)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { if $0 { state.select(pr) } }
+        .onHover { if $0 { state.select(item) } }
+        .cardMenu(item)
         .help("Open \(pr.fullRepo)#\(pr.number) in your browser")
+    }
+}
+
+private struct BranchCard: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var type
+    let branch: Branch
+
+    var body: some View {
+        let tags = state.tags(for: branch)
+        let item = BoardItem.branch(branch)
+        Button {
+            item.openCopyingBranch()
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                if !tags.isEmpty {
+                    FlowLayout(spacing: 4) {
+                        ForEach(tags) { TagChip(name: $0.name, slot: $0.colorSlot) }
+                    }
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(theme.faint)
+                    Text(branch.name)
+                        .font(type.mono(12.5))
+                        .foregroundStyle(theme.text)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 5) {
+                    RepoName(owner: branch.owner, repo: branch.repo, showOwner: state.filter.owner == .all)
+                    Text("·")
+                    Text(Age.short(from: branch.updatedAt, to: state.now))
+                }
+                .font(type.ui(11.5))
+                .foregroundStyle(theme.faint)
+                .lineLimit(1)
+                StatusChip(status: Status(branch))
+                    .padding(.top, 1)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .card(radius: 8, highlighted: state.selectedItem?.id == item.id)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { if $0 { state.select(item) } }
+        .cardMenu(item)
+        .help(branch.isPushed
+            ? "Compare \(branch.name) on GitHub, where you can open its PR"
+            : "Not pushed yet. Opens the clone in Finder")
     }
 }
 
 private struct RepoName: View {
     @Environment(\.theme) private var theme
-    let pr: PullRequest
+    let owner: String
+    let repo: String
     let showOwner: Bool
 
+    init(pr: PullRequest, showOwner: Bool) {
+        self.init(owner: pr.owner, repo: pr.repo, showOwner: showOwner)
+    }
+
+    init(owner: String, repo: String, showOwner: Bool) {
+        self.owner = owner
+        self.repo = repo
+        self.showOwner = showOwner
+    }
+
     var body: some View {
-        (showOwner ? Text("\(pr.owner)/").foregroundColor(theme.faint) : Text(""))
-            + Text(pr.repo).foregroundColor(theme.dim)
+        (showOwner ? Text("\(owner)/").foregroundColor(theme.faint) : Text(""))
+            + Text(repo).foregroundColor(theme.dim)
     }
 }
 
@@ -355,7 +426,7 @@ private struct ReviewList: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
         }
-        .followsSelection(in: prs)
+        .followsSelection(in: prs.map(\.id))
     }
 }
 
@@ -366,8 +437,9 @@ private struct ReviewRow: View {
     let pr: PullRequest
 
     var body: some View {
+        let item = BoardItem.pullRequest(pr)
         Button {
-            pr.openCopyingBranch()
+            item.openCopyingBranch()
         } label: {
             HStack(spacing: 12) {
                 Text(pr.author.prefix(2).uppercased())
@@ -408,11 +480,12 @@ private struct ReviewRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .card(radius: 8, highlighted: state.selectedPR?.id == pr.id)
+            .card(radius: 8, highlighted: state.selectedItem?.id == item.id)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { if $0 { state.select(pr) } }
+        .onHover { if $0 { state.select(item) } }
+        .cardMenu(item)
     }
 }
 
@@ -496,21 +569,39 @@ private struct KeyCap: View {
 
 private struct FollowsSelection: ViewModifier {
     @Environment(AppState.self) private var state
-    let prs: [PullRequest]
+    let ids: [String]
 
     func body(content: Content) -> some View {
         ScrollViewReader { proxy in
-            content.onChange(of: state.selectedPR?.id) { _, id in
-                guard let id, prs.contains(where: { $0.id == id }) else { return }
+            content.onChange(of: state.selectedItem?.id) { _, id in
+                guard let id, ids.contains(id) else { return }
                 proxy.scrollTo(id)
             }
         }
     }
 }
 
+private struct CardMenu: ViewModifier {
+    @Environment(AppState.self) private var state
+    let item: BoardItem
+
+    func body(content: Content) -> some View {
+        content.contextMenu {
+            Button("Copy branch name") { item.copyBranch() }
+            Divider()
+            Button("Hide from board") { state.hide(item) }
+        }
+    }
+}
+
 private extension View {
     /// Keeps the keyboard selection on screen in a long column.
-    func followsSelection(in prs: [PullRequest]) -> some View {
-        modifier(FollowsSelection(prs: prs))
+    func followsSelection(in ids: [String]) -> some View {
+        modifier(FollowsSelection(ids: ids))
+    }
+
+    /// Right click. Hidden cards come back from Settings.
+    func cardMenu(_ item: BoardItem) -> some View {
+        modifier(CardMenu(item: item))
     }
 }

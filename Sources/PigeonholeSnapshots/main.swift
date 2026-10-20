@@ -45,6 +45,13 @@ let board = Board(
     ]
 )
 
+let branches = [
+    Branch(owner: viewer, repo: "abacus", name: "rate-limit-retries", directory: URL(fileURLWithPath: "/tmp"),
+           updatedAt: Date().addingTimeInterval(-3 * 3_600), isPushed: false),
+    Branch(owner: "northwind", repo: "web", name: "invoice-pdf-footer", directory: URL(fileURLWithPath: "/tmp"),
+           updatedAt: Date().addingTimeInterval(-30 * 3_600), isPushed: true),
+]
+
 struct SampleGitHub: GitHubClient {
     func fetchBoard() async throws -> Board { board }
 
@@ -63,7 +70,8 @@ func makeState(theme: Theme) async -> AppState {
     let state = AppState(
         connect: { SampleGitHub() },
         defaults: UserDefaults(suiteName: "pigeonhole-snapshots-\(UUID().uuidString)")!,
-        tagStore: TagStore(directory: scratch)
+        tagStore: TagStore(directory: scratch),
+        scanBranches: { _ in branches }
     )
     state.themeID = theme.id
     let client = state.addTag()

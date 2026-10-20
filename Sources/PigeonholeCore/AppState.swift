@@ -12,6 +12,8 @@ public enum BoardTab: String {
 @Observable
 public final class AppState {
     public private(set) var board: Board?
+    /// Every branch of yours the last scan found, before any filtering.
+    public private(set) var branches: [Branch] = []
     public private(set) var catalog = RepoCatalog.empty
     public private(set) var tags: [Tag]
     public private(set) var lastUpdated: Date?
@@ -58,8 +60,23 @@ public final class AppState {
         }
     }
     public var onHotKeyChange: ((HotKey) -> Void)?
+    /// Where to look for clones whose branches have no PR yet.
+    public var branchFolders: [String] {
+        didSet {
+            defaults.set(branchFolders, forKey: AppConfig.Defaults.branchFolders)
+            Task { await rescanBranches() }
+        }
+    }
+    public private(set) var hidden: [HiddenItem] {
+        didSet {
+            if let data = try? JSONEncoder().encode(hidden) {
+                defaults.set(data, forKey: AppConfig.Defaults.hidden)
+            }
+        }
+    }
 
     private let connect: () async throws -> GitHubClient
+    private let scanBranches: @Sendable ([URL]) async -> [Branch]
     private var client: GitHubClient?
     private let defaults: UserDefaults
     private let tagStore: TagStore
@@ -71,17 +88,21 @@ public final class AppState {
         self.init(
             connect: { GitHubAPI(token: try await GitHubCLI.token()) },
             defaults: .standard,
-            tagStore: TagStore(directory: AppConfig.supportDirectory)
+            tagStore: TagStore(directory: AppConfig.supportDirectory),
+            scanBranches: { await LocalBranches.scan($0) }
         )
     }
 
-    /// Tests hand in their own client and storage and never reach GitHub.
+    /// Tests hand in their own client, storage and branches, and never reach
+    /// GitHub or the disk's repos.
     init(
         connect: @escaping () async throws -> GitHubClient,
         defaults: UserDefaults,
-        tagStore: TagStore
+        tagStore: TagStore,
+        scanBranches: @escaping @Sendable ([URL]) async -> [Branch] = { _ in [] }
     ) {
         self.connect = connect
+        self.scanBranches = scanBranches
         self.defaults = defaults
         self.tagStore = tagStore
         self.tags = tagStore.load()
@@ -97,6 +118,17 @@ public final class AppState {
             .flatMap(ActivityWindow.init(rawValue:)) ?? .standard
         hotKey = defaults.data(forKey: AppConfig.Defaults.hotKey)
             .flatMap { try? JSONDecoder().decode(HotKey.self, from: $0) } ?? .standard
+        branchFolders = defaults.stringArray(forKey: AppConfig.Defaults.branchFolders) ?? Self.foundCodeFolders()
+        hidden = defaults.data(forKey: AppConfig.Defaults.hidden)
+            .flatMap { try? JSONDecoder().decode([HiddenItem].self, from: $0) } ?? []
+    }
+
+    /// The usual homes for clones, as a starting point until you pick.
+    private static func foundCodeFolders() -> [String] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return AppConfig.Branches.defaultFolders
+            .map { home.appendingPathComponent($0).path }
+            .filter { FileManager.default.fileExists(atPath: $0) }
     }
 
     // MARK: - Appearance
@@ -132,15 +164,25 @@ public final class AppState {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+        async let scanned = scanBranches(folderURLs)
         do {
             let fetched = try await currentClient().fetchBoard()
             board = fetched
+            branches = await scanned
             lastUpdated = .now
             now = .now
             errorMessage = nil
         } catch {
             handle(error)
         }
+    }
+
+    public func rescanBranches() async {
+        branches = await scanBranches(folderURLs)
+    }
+
+    private var folderURLs: [URL] {
+        branchFolders.map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
     /// The tag picker's list. Fetched once when Settings asks for it, not on
@@ -193,30 +235,43 @@ public final class AppState {
 
     public var viewer: String { board?.viewer ?? "" }
 
-    /// Everything below reads these two rather than `board`, so a PR outside
-    /// the activity window is gone from the slots, the counts, the owner
-    /// list and the menu bar dot alike.
+    /// Everything below reads these three rather than `board`, so a card
+    /// outside the activity window, or hidden, is gone from the slots, the
+    /// counts, the owner list and the menu bar dot alike.
     private var mine: [PullRequest] {
-        (board?.mine ?? []).filter { activityWindow.includes($0, now: now) }
+        (board?.mine ?? []).filter { activityWindow.includes($0, now: now) && !isHidden($0.id) }
     }
 
     private var reviews: [PullRequest] {
-        (board?.reviews ?? []).filter { activityWindow.includes($0, now: now) }
+        (board?.reviews ?? []).filter { activityWindow.includes($0, now: now) && !isHidden($0.id) }
     }
 
-    private var source: [PullRequest] {
-        tab == .mine ? mine : reviews
+    /// Waits for the board, since until then every branch looks PR-less.
+    private var branchesWithoutPRs: [Branch] {
+        guard let heads = board?.heads else { return [] }
+        return branches.filter {
+            !heads.contains($0.id) && activityWindow.includes($0.updatedAt, now: now) && !isHidden($0.id)
+        }
+    }
+
+    private var source: [BoardItem] {
+        tab == .mine
+            ? mine.map(BoardItem.pullRequest) + branchesWithoutPRs.map(BoardItem.branch)
+            : reviews.map(BoardItem.pullRequest)
     }
 
     /// Unwindowed: an old PR's repo is still one you might want to tag.
     private var seenRepos: [String] {
-        ((board?.mine ?? []) + (board?.reviews ?? [])).map(\.fullRepo)
+        ((board?.mine ?? []) + (board?.reviews ?? [])).map(\.fullRepo) + branches.map(\.fullRepo)
     }
 
-    public func visible(in slot: Slot) -> [PullRequest] {
-        mine.filter {
-            Status($0).slot == slot && filter.matches($0, viewer: viewer, tags: tags)
+    /// In progress mixes drafts with PR-less branches, newest first.
+    public func visible(in slot: Slot) -> [BoardItem] {
+        var items = mine.filter { Status($0).slot == slot }.map(BoardItem.pullRequest)
+        if slot == .inProgress {
+            items = (items + branchesWithoutPRs.map(BoardItem.branch)).sorted { $0.updatedAt > $1.updatedAt }
         }
+        return items.filter { filter.matches($0, viewer: viewer, tags: tags) }
     }
 
     public var visibleReviews: [PullRequest] {
@@ -233,20 +288,20 @@ public final class AppState {
 
     // MARK: - Keyboard
 
-    /// The visible PRs in keyboard order: one column per slot, or a single
-    /// column for the review list.
-    private var columns: [[PullRequest]] {
-        tab == .mine ? Slot.allCases.map(visible(in:)) : [visibleReviews]
+    /// The visible cards in keyboard order: one column per slot, or a
+    /// single column for the review list.
+    private var columns: [[BoardItem]] {
+        tab == .mine ? Slot.allCases.map(visible(in:)) : [visibleReviews.map(BoardItem.pullRequest)]
     }
 
-    public var selectedPR: PullRequest? {
+    public var selectedItem: BoardItem? {
         let columns = columns
         guard let cursor = cursor?.resolved(in: columns) else { return nil }
         return columns[cursor.column][cursor.row]
     }
 
-    public func select(_ pr: PullRequest) {
-        cursor = BoardCursor.on(pr.id, in: columns)
+    public func select(_ item: BoardItem) {
+        cursor = BoardCursor.on(item.id, in: columns)
     }
 
     public func perform(_ command: BoardCommand) {
@@ -256,11 +311,11 @@ public final class AppState {
             cursor = cursor?.resolved(in: columns)?.moved(move, in: columns)
                 ?? BoardCursor.first(in: columns)
         case .open:
-            selectedPR?.openCopyingBranch()
+            selectedItem?.openCopyingBranch()
         case .copyBranch:
-            guard let pr = selectedPR else { return }
-            pr.copyBranch()
-            flash("Copied \(pr.branch)")
+            guard let item = selectedItem else { return }
+            item.copyBranch()
+            flash("Copied \(item.branchName)")
         case .switchTab:
             tab = tab == .mine ? .reviews : .mine
         case .showTab(let target):
@@ -280,14 +335,14 @@ public final class AppState {
         }
     }
 
-    public func tags(for pr: PullRequest) -> [Tag] {
-        tags.filter { $0.holds(pr.fullRepo) }
+    public func tags(for item: some RepoScoped) -> [Tag] {
+        tags.filter { $0.holds(item.fullRepo) }
     }
 
     /// Every owner that isn't you, from either tab, so the menu doesn't
     /// reshuffle when you switch tabs.
     public var otherOwners: [String] {
-        let owners = Set((mine + reviews).map(\.owner))
+        let owners = Set((mine + reviews).map(\.owner) + branchesWithoutPRs.map(\.owner))
         return owners.filter { $0.caseInsensitiveCompare(viewer) != .orderedSame }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
@@ -323,6 +378,21 @@ public final class AppState {
     public var activeFilterTag: Tag? {
         guard case .tag(let id) = filter.tag else { return nil }
         return tags.first { $0.id == id }
+    }
+
+    // MARK: - Hiding
+
+    public func hide(_ item: BoardItem) {
+        guard !isHidden(item.id) else { return }
+        hidden.append(HiddenItem(id: item.id, label: item.label))
+    }
+
+    public func unhide(_ id: String) {
+        hidden.removeAll { $0.id == id }
+    }
+
+    private func isHidden(_ id: String) -> Bool {
+        hidden.contains { $0.id == id }
     }
 
     // MARK: - Tags

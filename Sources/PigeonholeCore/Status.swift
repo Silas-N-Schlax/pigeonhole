@@ -54,6 +54,11 @@ public struct Status: Equatable {
         }
     }
 
+    /// A branch with no PR is work you haven't put up yet.
+    public init(_ branch: Branch) {
+        self.init(.inProgress, branch.isPushed ? "Pushed · no PR" : "Local only", .draft)
+    }
+
     init(_ slot: Slot, _ label: String, _ tone: StatusTone) {
         self.slot = slot
         self.label = label
@@ -61,8 +66,8 @@ public struct Status: Equatable {
     }
 }
 
-/// How far back a PR's last activity can be and still show. A PR nobody has
-/// touched in months is usually abandoned, not waiting on you.
+/// How far back a PR's or branch's last activity can be and still show. One
+/// nobody has touched in months is usually abandoned, not waiting on you.
 public enum ActivityWindow: String, CaseIterable, Identifiable {
     case all, days14, days30, days60, days90, year
 
@@ -93,8 +98,12 @@ public enum ActivityWindow: String, CaseIterable, Identifiable {
     }
 
     public func includes(_ pr: PullRequest, now: Date) -> Bool {
+        includes(pr.updatedAt, now: now)
+    }
+
+    public func includes(_ date: Date, now: Date) -> Bool {
         guard let days else { return true }
-        return now.timeIntervalSince(pr.updatedAt) <= TimeInterval(days) * 86_400
+        return now.timeIntervalSince(date) <= TimeInterval(days) * 86_400
     }
 }
 

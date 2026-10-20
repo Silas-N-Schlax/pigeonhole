@@ -28,6 +28,17 @@ public enum AppConfig {
         public static let pageSize = 100
         public static let mine = "is:pr is:open author:@me archived:false sort:updated-desc"
         public static let reviews = "is:pr is:open review-requested:@me archived:false sort:updated-desc"
+        /// Closed and merged PRs, so a branch that already had its PR
+        /// doesn't come back as one that still needs one.
+        public static let closed = "is:pr is:closed author:@me archived:false sort:updated-desc"
+    }
+
+    public enum Branches {
+        /// Folders under your home searched for repos on first run.
+        public static let defaultFolders = ["code", "Developer", "Projects", "src", "dev"]
+        /// How many folders below each chosen folder to look for repos.
+        public static let searchDepth = 3
+        public static let skippedFolders: Set<String> = ["node_modules", "vendor", "Pods", "build", "dist"]
     }
 
     public enum Defaults {
@@ -38,6 +49,8 @@ public enum AppConfig {
         public static let showActionDot = "showActionDot"
         public static let activityWindow = "activityWindow"
         public static let hotKey = "hotKey"
+        public static let branchFolders = "branchFolders"
+        public static let hidden = "hidden"
     }
 
     public static var supportDirectory: URL {

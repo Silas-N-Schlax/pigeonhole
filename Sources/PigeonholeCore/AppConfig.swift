@@ -11,6 +11,11 @@ public enum AppConfig {
         public static let dropBelowMenuBar: CGFloat = 6
     }
 
+    public enum Board {
+        /// How long the footer shows "Copied …" after pressing c.
+        public static let noticeSeconds = 2.0
+    }
+
     public enum Refresh {
         public static let minuteOptions = [2, 5, 10]
         public static let defaultMinutes = 5

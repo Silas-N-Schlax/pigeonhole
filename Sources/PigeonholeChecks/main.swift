@@ -253,6 +253,55 @@ check("hot key display order") {
     expect(HotKey.standard.display == "⌥⌘P", HotKey.standard.display)
 }
 
+// MARK: - Keyboard
+
+check("cursor starts on the first card of the first filled column") {
+    let a = pr("a")
+    expect(BoardCursor.first(in: [[], [a], []])?.id == a.id, "first")
+    expect(BoardCursor.first(in: [[], []]) == nil, "nothing to select")
+}
+
+check("cursor moves sideways past empty columns, keeping its row when it can") {
+    let left = [pr("l0"), pr("l1"), pr("l2")]
+    let right = [pr("r0"), pr("r1")]
+    let columns = [left, [], right]
+    let start = BoardCursor.on(left[2].id, in: columns)!
+    let over = start.moved(.right, in: columns)
+    expect(over.id == right[1].id, "clamped to the last card of the next filled column")
+    expect(over.moved(.right, in: columns) == over, "stops at the right edge")
+    expect(over.moved(.left, in: columns).id == left[1].id, "back keeps the row it landed on")
+}
+
+check("cursor stops at the top and bottom of a column") {
+    let column = [pr("a"), pr("b")]
+    let top = BoardCursor.first(in: [column])!
+    expect(top.moved(.up, in: [column]) == top, "top")
+    let bottom = top.moved(.down, in: [column])
+    expect(bottom.id == column[1].id, "down")
+    expect(bottom.moved(.down, in: [column]) == bottom, "bottom")
+}
+
+check("cursor follows its PR across columns, and lands nearby when it's gone") {
+    let a = pr("a"), b = pr("b"), c = pr("c")
+    let cursor = BoardCursor.on(b.id, in: [[a, b], [c]])!
+    expect(cursor.resolved(in: [[a], [c, b]])?.id == b.id, "moved column")
+    expect(cursor.resolved(in: [[a], [c]])?.id == a.id, "gone: same column, row clamped")
+    expect(cursor.resolved(in: [[], [c]])?.id == c.id, "gone: nearest filled column")
+    expect(cursor.resolved(in: [[], []]) == nil, "board emptied")
+}
+
+check("keys map to commands, and ⌘ chords are left alone") {
+    expect(BoardCommand(keyCode: kVK_LeftArrow, modifiers: [.numericPad, .function], characters: nil)
+        == .move(.left), "arrow")
+    expect(BoardCommand(keyCode: kVK_Return, modifiers: [], characters: "\r") == .open, "return")
+    expect(BoardCommand(keyCode: kVK_ANSI_C, modifiers: [], characters: "c") == .copyBranch, "c")
+    expect(BoardCommand(keyCode: kVK_ANSI_C, modifiers: [.shift], characters: "C") == .copyBranch, "C")
+    expect(BoardCommand(keyCode: kVK_ANSI_C, modifiers: [.command], characters: "c") == nil, "⌘C")
+    expect(BoardCommand(keyCode: kVK_Tab, modifiers: [], characters: "\t") == .switchTab, "tab")
+    expect(BoardCommand(keyCode: kVK_ANSI_2, modifiers: [], characters: "2") == .showTab(.reviews), "2")
+    expect(BoardCommand(keyCode: kVK_Escape, modifiers: [], characters: "\u{1b}") == nil, "escape")
+}
+
 // MARK: - AppState against a fake GitHub
 
 struct FakeGitHub: GitHubClient {
@@ -305,6 +354,41 @@ await check("refresh fills the slots, and tags follow their repos") {
         state.deleteTag(id)
         expect(state.filter.tag == .any, "deleting the filtered tag clears the filter")
         expect(TagStore(directory: directory).load().isEmpty, "delete saved")
+    }
+}
+
+await check("keyboard selection walks the visible board and resets on tab and open") {
+    let defaults = UserDefaults(suiteName: "pigeonhole-checks-\(UUID().uuidString)")!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pigeonhole-checks-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fake = FakeGitHub(board: Board(
+        viewer: "me",
+        mine: [
+            pr("draft", owner: "me", repo: "a", draft: true),
+            pr("ready", owner: "org", repo: "x", decision: .approved, approvals: 1),
+        ],
+        reviews: [pr("theirs", owner: "org", repo: "x")]
+    ))
+    let state = AppState(connect: { fake }, defaults: defaults, tagStore: TagStore(directory: directory))
+    await MainActor.run { state.activityWindow = .all }
+    await state.refresh()
+    await MainActor.run {
+        expect(state.selectedPR == nil, "nothing selected until a key")
+        state.perform(.move(.down))
+        expect(state.selectedPR?.title == "draft", "first press picks the first card")
+        state.perform(.move(.right))
+        expect(state.selectedPR?.title == "ready", "skips the empty In review column")
+        state.filter.owner = .personal
+        expect(state.selectedPR?.title == "draft", "filtered away, lands on the neighbour")
+        state.filter.owner = .all
+
+        state.perform(.switchTab)
+        expect(state.tab == .reviews && state.selectedPR == nil, "tab switch clears")
+        state.perform(.move(.down))
+        expect(state.selectedPR?.title == "theirs", "review list")
+        state.boardDidOpen()
+        expect(state.selectedPR == nil, "opening clears")
     }
 }
 

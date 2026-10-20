@@ -533,7 +533,6 @@ private struct TagEditor: View {
     @Environment(AppState.self) private var state
     @Environment(\.theme) private var theme
     @Environment(\.typography) private var type
-    @State private var query = ""
     let tag: Tag
     let delete: () -> Void
 
@@ -576,26 +575,7 @@ private struct TagEditor: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                fieldLabel("Repos")
-                TextField("Search your repos and ones you contribute to", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(type.ui(12.5))
-                    .padding(.horizontal, 10)
-                    .frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(theme.window))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.controlLine))
-                if state.isLoadingRepos {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.mini)
-                        Text("Loading your repos…").font(type.ui(12)).foregroundStyle(theme.faint)
-                    }
-                    .padding(.vertical, 6)
-                }
-                repoGroup("Picked", tag.repos.filter(matches))
-                repoGroup("Your repos", state.catalog.own.filter { !tag.holds($0) && matches($0) })
-                repoGroup("Repos you contribute to", state.catalog.contributed.filter { !tag.holds($0) && matches($0) })
-            }
+            RepoPicker(tag: tag)
 
             Button("Delete tag", role: .destructive, action: delete)
                 .buttonStyle(.plain)
@@ -606,32 +586,173 @@ private struct TagEditor: View {
         .card(radius: 10)
     }
 
-    private func matches(_ repo: String) -> Bool {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty || repo.localizedCaseInsensitiveContains(trimmed)
-    }
-
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
             .font(type.ui(11.5, .semibold))
             .foregroundStyle(theme.dim)
     }
+}
 
-    @ViewBuilder
-    private func repoGroup(_ title: String, _ repos: [String]) -> some View {
-        if !repos.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title.uppercased())
-                    .font(type.ui(10.5, .semibold))
-                    .tracking(0.5)
-                    .foregroundStyle(theme.faint)
-                    .padding(.top, 6)
-                    .padding(.bottom, 2)
-                ForEach(repos, id: \.self) { repo in
-                    RepoRow(repo: repo, tag: tag)
+/// Search, an owner filter and one bounded list, so a few hundred org
+/// repos stay browsable instead of making Settings miles long.
+private struct RepoPicker: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var type
+    @State private var query = ""
+    @State private var owner: String?
+    let tag: Tag
+
+    var body: some View {
+        let owners = state.catalog.owners(viewer: state.viewer)
+        let found = state.catalog.repos.filter { RepoCatalog.matches($0, query: query) }
+        let shown = found.filter { owner == nil || RepoCatalog.owner(of: $0) == owner }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Repos")
+                    .font(type.ui(11.5, .semibold))
+                    .foregroundStyle(theme.dim)
+                Spacer()
+                if !tag.repos.isEmpty {
+                    Text("\(tag.repos.count) picked")
+                        .font(type.ui(11))
+                        .foregroundStyle(theme.faint)
                 }
             }
+            if !tag.repos.isEmpty {
+                FlowLayout(spacing: 5) {
+                    ForEach(tag.repos, id: \.self) { repo in
+                        PickedRepo(repo: repo) { state.toggleRepo(repo, in: tag.id) }
+                    }
+                }
+            }
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.faint)
+                TextField("Search \(state.catalog.repos.count) repos", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(type.ui(12.5))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7).fill(theme.window))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.controlLine))
+            if owners.count > 1 {
+                FlowLayout(spacing: 5) {
+                    OwnerChip(label: "All", count: found.count, on: owner == nil) { owner = nil }
+                    ForEach(owners, id: \.self) { name in
+                        OwnerChip(
+                            label: label(for: name),
+                            count: found.filter { RepoCatalog.owner(of: $0) == name }.count,
+                            on: owner == name
+                        ) { owner = name }
+                    }
+                }
+            }
+            list(shown, owners: owners)
         }
+    }
+
+    private func label(for owner: String) -> String {
+        owner.caseInsensitiveCompare(state.viewer) == .orderedSame ? "Personal" : owner
+    }
+
+    private func list(_ repos: [String], owners: [String]) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if state.isLoadingRepos {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.mini)
+                        Text("Loading your repos…").font(type.ui(12)).foregroundStyle(theme.faint)
+                    }
+                    .padding(10)
+                } else if repos.isEmpty {
+                    Text(query.isEmpty ? "No repos here." : "No repos match \u{201C}\(query)\u{201D}.")
+                        .font(type.ui(12))
+                        .foregroundStyle(theme.faint)
+                        .padding(10)
+                }
+                ForEach(owners.filter { name in repos.contains { RepoCatalog.owner(of: $0) == name } }, id: \.self) { name in
+                    Section {
+                        ForEach(repos.filter { RepoCatalog.owner(of: $0) == name }, id: \.self) { repo in
+                            RepoRow(repo: repo, tag: tag)
+                        }
+                    } header: {
+                        Text(label(for: name).uppercased())
+                            .font(type.ui(10.5, .semibold))
+                            .tracking(0.5)
+                            .foregroundStyle(theme.faint)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 6)
+                            .padding(.top, 8)
+                            .padding(.bottom, 3)
+                            .background(theme.window)
+                    }
+                }
+            }
+            .padding(.horizontal, 4)
+            .padding(.bottom, 4)
+        }
+        .frame(height: AppConfig.Window.repoListHeight)
+        .background(RoundedRectangle(cornerRadius: 7).fill(theme.window))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.controlLine))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+private struct OwnerChip: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var type
+    let label: String
+    let count: Int
+    let on: Bool
+    let pick: () -> Void
+    private let pill = RoundedRectangle(cornerRadius: 12, style: .circular)
+
+    var body: some View {
+        Button(action: pick) {
+            HStack(spacing: 5) {
+                Text(label).font(type.ui(11.5, on ? .semibold : .medium))
+                Text("\(count)")
+                    .font(type.ui(10.5))
+                    .monospacedDigit()
+                    .foregroundStyle(theme.faint)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background(pill.fill(on ? theme.accentSoft : theme.card))
+            .overlay(pill.strokeBorder(on ? theme.accent : theme.cardLine))
+            .contentShape(pill)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+private struct PickedRepo: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var type
+    let repo: String
+    let remove: () -> Void
+
+    var body: some View {
+        Button(action: remove) {
+            HStack(spacing: 5) {
+                Text(repo).font(type.mono(11)).lineLimit(1)
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(theme.faint)
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 7)
+            .frame(height: 22)
+            .background(RoundedRectangle(cornerRadius: 6).fill(theme.accentSoft))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Remove \(repo)")
+        .accessibilityLabel("Remove \(repo)")
     }
 }
 
@@ -661,8 +782,8 @@ private struct RepoRow: View {
                         }
                     }
                     .frame(width: 15, height: 15)
-                (Text("\(parts.first ?? "")/").foregroundColor(theme.faint)
-                    + Text(parts.last ?? "").foregroundColor(theme.text))
+                Text(parts.last ?? repo)
+                    .foregroundStyle(theme.text)
                     .font(type.mono(12))
                     .lineLimit(1)
                 Spacer(minLength: 6)

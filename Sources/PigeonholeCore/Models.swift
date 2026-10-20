@@ -161,24 +161,41 @@ public struct Board: Equatable, Sendable {
     var heads: Set<String> { closedHeads.union(mine.map(\.head)) }
 }
 
-/// Repos offered in the tag picker, as `owner/name`.
+/// Repos offered in the tag picker, as `owner/name`, newest push first
+/// within each owner.
 public struct RepoCatalog: Equatable, Sendable {
-    public var own: [String]
-    public var contributed: [String]
+    public var repos: [String]
 
-    public static let empty = RepoCatalog(own: [], contributed: [])
+    public static let empty = RepoCatalog(repos: [])
 
-    public var isEmpty: Bool { own.isEmpty && contributed.isEmpty }
+    public init(repos: [String]) {
+        var seen = Set<String>()
+        self.repos = repos.filter { seen.insert($0.lowercased()).inserted }
+    }
 
-    /// Folds in repos seen on PRs, so a repo you only have open PRs in can
-    /// still be tagged even when GitHub's contribution list leaves it out.
-    func adding(_ repos: [String], viewer: String) -> RepoCatalog {
-        var own = self.own
-        var contributed = self.contributed
-        for repo in repos where !own.contains(repo) && !contributed.contains(repo) {
-            if repo.hasPrefix("\(viewer)/") { own.append(repo) } else { contributed.append(repo) }
-        }
-        return RepoCatalog(own: own, contributed: contributed)
+    public var isEmpty: Bool { repos.isEmpty }
+
+    /// Folds in repos seen on PRs and local clones, so one GitHub's lists
+    /// leave out can still be tagged.
+    func adding(_ more: [String]) -> RepoCatalog {
+        RepoCatalog(repos: repos + more)
+    }
+
+    /// Your own account first, then everyone else alphabetically.
+    public func owners(viewer: String) -> [String] {
+        let all = Set(repos.map(Self.owner(of:)))
+        let others = all.filter { $0.caseInsensitiveCompare(viewer) != .orderedSame }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        return all.contains { $0.caseInsensitiveCompare(viewer) == .orderedSame } ? [viewer] + others : others
+    }
+
+    /// Every word has to appear, so "role portal" finds RoleModel/sayfa_portal.
+    public static func matches(_ repo: String, query: String) -> Bool {
+        query.split(whereSeparator: \.isWhitespace).allSatisfy { repo.localizedCaseInsensitiveContains($0) }
+    }
+
+    public static func owner(of repo: String) -> String {
+        String(repo.prefix { $0 != "/" })
     }
 }
 

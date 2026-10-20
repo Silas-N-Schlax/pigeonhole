@@ -123,12 +123,28 @@ public final class AppState {
             .flatMap { try? JSONDecoder().decode([HiddenItem].self, from: $0) } ?? []
     }
 
-    /// The usual homes for clones, as a starting point until you pick.
+    /// The usual homes for clones plus any other home folder that holds
+    /// one, as a starting point until you pick.
     private static func foundCodeFolders() -> [String] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return AppConfig.Branches.defaultFolders
-            .map { home.appendingPathComponent($0).path }
-            .filter { FileManager.default.fileExists(atPath: $0) }
+        let files = FileManager.default
+        let home = files.homeDirectoryForCurrentUser
+        let usual = AppConfig.Branches.defaultFolders
+            .map { home.appendingPathComponent($0) }
+            .filter { files.fileExists(atPath: $0.path) }
+        let skipped = AppConfig.Branches.skippedHomeFolders.union(AppConfig.Branches.defaultFolders)
+        let others = ((try? files.contentsOfDirectory(
+            at: home,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        )) ?? [])
+            .filter { folder in
+                let values = try? folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                return values?.isDirectory == true && values?.isSymbolicLink != true
+                    && !skipped.contains(folder.lastPathComponent)
+            }
+            .filter { !LocalBranches.repositories(in: [$0]).isEmpty }
+            .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+        return (usual + others).map(\.path)
     }
 
     // MARK: - Appearance
@@ -193,9 +209,9 @@ public final class AppState {
         defer { isLoadingRepos = false }
         do {
             let fetched = try await currentClient().fetchRepos()
-            catalog = fetched.adding(seenRepos, viewer: viewer)
+            catalog = fetched.adding(seenRepos)
         } catch {
-            catalog = RepoCatalog.empty.adding(seenRepos, viewer: viewer)
+            catalog = RepoCatalog.empty.adding(seenRepos)
             handle(error)
         }
     }

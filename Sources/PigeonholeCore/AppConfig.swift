@@ -7,6 +7,8 @@ public enum AppConfig {
         public static let boardSize = CGSize(width: 780, height: 560)
         public static let settingsSize = CGSize(width: 460, height: 640)
         public static let cornerRadius: CGFloat = 12
+        /// The tag picker's scrolling repo list.
+        public static let repoListHeight: CGFloat = 260
         /// Gap between the menu bar and the top of the board.
         public static let dropBelowMenuBar: CGFloat = 6
     }
@@ -31,14 +33,24 @@ public enum AppConfig {
         /// Closed and merged PRs, so a branch that already had its PR
         /// doesn't come back as one that still needs one.
         public static let closed = "is:pr is:closed author:@me archived:false sort:updated-desc"
+        /// Pages of 100 per repo list in the tag picker, so a huge org can't
+        /// stall Settings.
+        public static let maxRepoPages = 10
     }
 
     public enum Branches {
-        /// Folders under your home searched for repos on first run.
+        /// Folders under your home searched for repos on first run, listed
+        /// first. Any other home folder holding a clone joins them.
         public static let defaultFolders = ["code", "Developer", "Projects", "src", "dev"]
         /// How many folders below each chosen folder to look for repos.
         public static let searchDepth = 3
         public static let skippedFolders: Set<String> = ["node_modules", "vendor", "Pods", "build", "dist"]
+        /// Home folders never probed for clones on first run. Desktop,
+        /// Documents and Downloads would each raise a macOS privacy prompt.
+        public static let skippedHomeFolders: Set<String> = [
+            "Applications", "Desktop", "Documents", "Downloads", "Library",
+            "Movies", "Music", "Pictures", "Public",
+        ]
     }
 
     public enum Defaults {

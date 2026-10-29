@@ -72,6 +72,14 @@ public struct Theme: Identifiable, Equatable {
         }
     }
 
+    /// Edges are drawn as a translucent ring rather than a solid border, so
+    /// they read the same over a card, a slot or the window behind them.
+    public var ring: Color { isDark ? .white.opacity(0.08) : .black.opacity(0.07) }
+    public var ringStrong: Color { isDark ? .white.opacity(0.14) : .black.opacity(0.12) }
+    public var lift: Color { .black.opacity(isDark ? 0.3 : 0.05) }
+    public var scrim: Color { .black.opacity(isDark ? 0.45 : 0.16) }
+    public var focusHalo: Color { accent.opacity(isDark ? 0.28 : 0.2) }
+
     public var good: Color { tag(3).dot }
     public var danger: Color { tag(0).text }
     public var added: Color { tag(3).text }

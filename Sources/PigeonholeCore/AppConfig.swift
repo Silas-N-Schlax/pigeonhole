@@ -6,7 +6,7 @@ public enum AppConfig {
     public enum Window {
         public static let boardSize = CGSize(width: 780, height: 560)
         public static let settingsSize = CGSize(width: 460, height: 640)
-        public static let cornerRadius: CGFloat = 12
+        public static let cornerRadius = Radius.window
         /// The tag picker's scrolling repo list.
         public static let repoListHeight: CGFloat = 260
         /// Gap between the menu bar and the top of the board.
@@ -16,6 +16,48 @@ public enum AppConfig {
     public enum Board {
         /// How long the footer shows "Copied …" after pressing c.
         public static let noticeSeconds = 2.0
+        /// Gap between the window's edge and the slots or review rows.
+        public static let padding: CGFloat = 12
+        /// Inset of the cards inside their slot.
+        public static let slotInset: CGFloat = 6
+        public static let paletteWidth: CGFloat = 420
+        public static let paletteListHeight: CGFloat = 336
+        public static let paletteInset: CGFloat = 6
+        public static let paletteRowHeight: CGFloat = 32
+        public static let keyCapHeight: CGFloat = 18
+    }
+
+    /// Corner radii, each built from the shape inside it plus the gap
+    /// between the two, so every nested pair of curves stays concentric.
+    /// Change an inner one and everything around it follows.
+    public enum Radius {
+        public static let card: CGFloat = 10
+        public static let halo = card + 3
+        public static let slot = card + Board.slotInset
+        public static let window = slot + Board.padding
+
+        public static let keyCap: CGFloat = 5
+        public static let paletteRow = keyCap + (Board.paletteRowHeight - Board.keyCapHeight) / 2
+        public static let palette = paletteRow + Board.paletteInset
+
+        public static let segment: CGFloat = 6
+        public static let segmentTrack = segment + 2
+
+        public static let field: CGFloat = 8
+        public static let tagEditorPadding: CGFloat = 12
+        public static let tagEditor = field + tagEditorPadding
+
+        public static let themePreview: CGFloat = 6
+        public static let themeCardPadding: CGFloat = 8
+        public static let themeCard = themePreview + themeCardPadding
+
+        /// Settings cards sit this far in from the window's own corners.
+        public static let settingsPadding = window - card
+    }
+
+    public enum Motion {
+        public static let quick = 0.14
+        public static let settle = 0.28
     }
 
     public enum Refresh {

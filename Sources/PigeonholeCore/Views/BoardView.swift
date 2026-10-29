@@ -5,6 +5,7 @@ import SwiftUI
 public struct BoardView: View {
     @Environment(AppState.self) private var state
     @Environment(\.theme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let openSettings: () -> Void
     private let close: () -> Void
 
@@ -22,12 +23,27 @@ public struct BoardView: View {
             theme.line.frame(height: 1)
             BoardFooter(openSettings: openSettings)
         }
+        .overlay {
+            if state.palette != nil {
+                theme.scrim
+                    .contentShape(Rectangle())
+                    .onTapGesture { state.perform(.showShortcuts) }
+                    .transition(.opacity)
+            }
+        }
+        .overlay {
+            if state.palette != nil {
+                ShortcutPaletteView()
+                    .transition(.lift(reduceMotion: reduceMotion))
+            }
+        }
+        .animation(.smooth(duration: AppConfig.Motion.settle), value: state.palette != nil)
         .frame(width: AppConfig.Window.boardSize.width, height: AppConfig.Window.boardSize.height)
         .background(theme.window)
-        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Window.cornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Window.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: AppConfig.Window.cornerRadius)
-                .strokeBorder(theme.controlLine, lineWidth: 1)
+            RoundedRectangle(cornerRadius: AppConfig.Window.cornerRadius, style: .continuous)
+                .strokeBorder(theme.ringStrong, lineWidth: 1)
         )
         .onExitCommand(perform: close)
     }
@@ -35,16 +51,22 @@ public struct BoardView: View {
     @ViewBuilder private var content: some View {
         if state.board == nil {
             BoardPlaceholder()
-        } else if state.tab == .mine {
-            HStack(spacing: 10) {
-                ForEach(Slot.allCases) { slot in
-                    SlotColumn(slot: slot, items: state.visible(in: slot))
+        } else {
+            ZStack {
+                if state.tab == .mine {
+                    HStack(spacing: 10) {
+                        ForEach(Slot.allCases) { slot in
+                            SlotColumn(slot: slot, items: state.visible(in: slot))
+                        }
+                    }
+                    .padding(AppConfig.Board.padding)
+                    .transition(.opacity)
+                } else {
+                    ReviewList(prs: state.visibleReviews)
+                        .transition(.opacity)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-        } else {
-            ReviewList(prs: state.visibleReviews)
+            .animation(.easeOut(duration: AppConfig.Motion.quick), value: state.tab)
         }
     }
 }
@@ -82,10 +104,11 @@ private struct BoardHeader: View {
     @Environment(AppState.self) private var state
     @Environment(\.theme) private var theme
     @Environment(\.typography) private var type
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var state = state
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
             HStack(spacing: 8) {
                 PigeonholeMark(color: theme.accent)
                     .frame(width: 20, height: 18)
@@ -102,30 +125,26 @@ private struct BoardHeader: View {
             )
             Spacer(minLength: 0)
             FilterMenu()
-            Button {
+            IconButton(help: "Refresh (R)") {
                 Task { await state.refresh() }
             } label: {
-                Group {
+                ZStack {
                     if state.isRefreshing {
                         ProgressView().controlSize(.mini)
+                            .transition(.blurSwap(reduceMotion: reduceMotion))
                     } else {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
+                            .transition(.blurSwap(reduceMotion: reduceMotion))
                     }
                 }
-                .foregroundStyle(theme.dim)
-                .frame(width: 28, height: 28)
-                .background(RoundedRectangle(cornerRadius: 7).fill(theme.control))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.controlLine))
-                .contentShape(Rectangle())
+                .animation(.smooth(duration: AppConfig.Motion.quick), value: state.isRefreshing)
             }
-            .buttonStyle(.plain)
             .disabled(state.isRefreshing)
-            .help("Refresh")
         }
         .padding(.leading, 16)
-        .padding(.trailing, 14)
-        .padding(.vertical, 11)
+        .padding(.trailing, 12)
+        .padding(.vertical, 10)
     }
 }
 
@@ -171,16 +190,21 @@ private struct FilterMenu: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .foregroundStyle(theme.text)
-        .padding(.leading, 10)
+        .padding(.leading, state.activeFilterTag == nil ? 10 : 18)
         .padding(.trailing, 6)
         .frame(height: 28)
-        .background(RoundedRectangle(cornerRadius: 7).fill(theme.control))
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(theme.control)
+                .shadow(color: theme.lift, radius: 1, y: 1)
+        )
         .overlay(alignment: .leading) {
             if let tag = state.activeFilterTag {
-                Dot(color: theme.tag(tag.colorSlot).dot, size: 6).offset(x: 3)
+                Dot(color: theme.tag(tag.colorSlot).dot, size: 6).padding(.leading, 9)
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.controlLine))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(theme.ring))
+        .help("Filter by owner (O) or tag (T). ⌫ clears.")
     }
 
     @ViewBuilder
@@ -202,20 +226,22 @@ private struct SlotColumn: View {
     let items: [BoardItem]
 
     var body: some View {
+        let inset = AppConfig.Board.slotInset
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
-                Dot(color: theme.dot(slot))
-                SectionLabel(slot.title)
-                Text("\(items.count)")
-                    .font(type.ui(11))
-                    .monospacedDigit()
-                    .foregroundStyle(theme.faint)
+                Dot(color: theme.dot(slot), size: 7)
+                Text(slot.title)
+                    .font(type.ui(12.5, .semibold))
+                    .foregroundStyle(theme.text)
+                Spacer(minLength: 0)
+                CountBadge(count: items.count)
             }
-            .padding(.horizontal, 12)
+            .padding(.leading, 12)
+            .padding(.trailing, 8)
             .padding(.top, 10)
             .padding(.bottom, 8)
             ScrollView {
-                LazyVStack(spacing: 7) {
+                LazyVStack(spacing: 6) {
                     ForEach(items) { item in
                         switch item {
                         case .pullRequest(let pr): PRCard(pr: pr)
@@ -223,21 +249,26 @@ private struct SlotColumn: View {
                         }
                     }
                     if items.isEmpty {
-                        Text("Nothing in this slot")
+                        Text("Nothing here")
                             .font(type.ui(12))
                             .foregroundStyle(theme.faint)
-                            .padding(.vertical, 18)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 24)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                // Room for the selection halo, which sits outside the card.
+                .padding(.horizontal, inset)
+                .padding(.top, 3)
+                .padding(.bottom, inset)
             }
             .scrollIndicators(.never)
             .followsSelection(in: items.map(\.id))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 10).fill(theme.slot))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.slotLine))
+        .background(
+            RoundedRectangle(cornerRadius: AppConfig.Radius.slot, style: .continuous)
+                .fill(theme.slot)
+        )
     }
 }
 
@@ -248,31 +279,25 @@ private struct PRCard: View {
     let pr: PullRequest
 
     var body: some View {
-        let status = Status(pr)
-        let tags = state.tags(for: pr)
         let item = BoardItem.pullRequest(pr)
         Button {
             item.openCopyingBranch()
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                if !tags.isEmpty {
-                    FlowLayout(spacing: 4) {
-                        ForEach(tags) { TagChip(name: $0.name, slot: $0.colorSlot) }
-                    }
-                }
+            VStack(alignment: .leading, spacing: 5) {
                 Text(pr.title)
                     .font(type.ui(13, .semibold))
                     .foregroundStyle(theme.text)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     RepoName(pr: pr, showOwner: state.filter.owner == .all)
-                    Text("#\(pr.number)").font(type.mono(11))
+                    Text("#\(pr.number)")
                     Text("·")
                     Text(Age.short(from: pr.updatedAt, to: state.now))
                 }
                 .font(type.ui(11.5))
+                .monospacedDigit()
                 .foregroundStyle(theme.faint)
                 .lineLimit(1)
                 HStack(spacing: 5) {
@@ -283,22 +308,20 @@ private struct PRCard: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 6)
-                    // Up here rather than beside the status chip, so the chip
-                    // gets the whole row and "Approved · ready to merge" fits.
                     ChecksBadge(checks: pr.checks)
                         .layoutPriority(1)
                 }
                 .foregroundStyle(theme.faint)
-                StatusChip(status: status)
-                    .padding(.top, 1)
+                CardChips(status: Status(pr), tags: state.tags(for: pr))
+                    .padding(.top, 3)
             }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .card(radius: 8, highlighted: state.selectedItem?.id == item.id)
+            .card(highlighted: state.selectedItem?.id == item.id)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.985))
         .onHover { if $0 { state.select(item) } }
         .cardMenu(item)
         .help("Open \(pr.fullRepo)#\(pr.number) in your browser")
@@ -312,17 +335,11 @@ private struct BranchCard: View {
     let branch: Branch
 
     var body: some View {
-        let tags = state.tags(for: branch)
         let item = BoardItem.branch(branch)
         Button {
             item.openCopyingBranch()
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                if !tags.isEmpty {
-                    FlowLayout(spacing: 4) {
-                        ForEach(tags) { TagChip(name: $0.name, slot: $0.colorSlot) }
-                    }
-                }
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.system(size: 10.5, weight: .semibold))
@@ -334,29 +351,44 @@ private struct BranchCard: View {
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     RepoName(owner: branch.owner, repo: branch.repo, showOwner: state.filter.owner == .all)
                     Text("·")
                     Text(Age.short(from: branch.updatedAt, to: state.now))
                 }
                 .font(type.ui(11.5))
+                .monospacedDigit()
                 .foregroundStyle(theme.faint)
                 .lineLimit(1)
-                StatusChip(status: Status(branch))
-                    .padding(.top, 1)
+                CardChips(status: Status(branch), tags: state.tags(for: branch))
+                    .padding(.top, 3)
             }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .card(radius: 8, highlighted: state.selectedItem?.id == item.id)
+            .card(highlighted: state.selectedItem?.id == item.id)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.985))
         .onHover { if $0 { state.select(item) } }
         .cardMenu(item)
         .help(branch.isPushed
             ? "Compare \(branch.name) on GitHub, where you can open its PR"
             : "Not pushed yet. Opens the clone in Finder")
+    }
+}
+
+/// The status first, then the tags, wrapping onto a second row when a long
+/// status like "Approved · ready to merge" leaves no room.
+private struct CardChips: View {
+    let status: Status
+    let tags: [Tag]
+
+    var body: some View {
+        FlowLayout(spacing: 4) {
+            StatusChip(status: status)
+            ForEach(tags) { TagChip(name: $0.name, slot: $0.colorSlot) }
+        }
     }
 }
 
@@ -423,9 +455,9 @@ private struct ReviewList: View {
                         .padding(.vertical, 40)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(AppConfig.Board.padding)
         }
+        .scrollIndicators(.never)
         .followsSelection(in: prs.map(\.id))
     }
 }
@@ -445,8 +477,9 @@ private struct ReviewRow: View {
                 Text(pr.author.prefix(2).uppercased())
                     .font(type.ui(11, .semibold))
                     .foregroundStyle(theme.accentSoftText)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 30, height: 30)
                     .background(Circle().fill(theme.accentSoft))
+                    .overlay(Circle().strokeBorder(theme.ring))
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(pr.title)
@@ -464,6 +497,7 @@ private struct ReviewRow: View {
                         Text("updated \(Age.short(from: pr.updatedAt, to: state.now))")
                     }
                     .font(type.ui(11.5))
+                    .monospacedDigit()
                     .foregroundStyle(theme.faint)
                     .lineLimit(1)
                 }
@@ -471,6 +505,7 @@ private struct ReviewRow: View {
                 (Text("+\(pr.additions)").foregroundColor(theme.added)
                     + Text(" −\(pr.deletions)").foregroundColor(theme.removed))
                     .font(type.mono(11))
+                    .monospacedDigit()
                 HStack(spacing: 3) {
                     Text("Open")
                     Image(systemName: "arrow.up.right").font(.system(size: 9, weight: .semibold))
@@ -479,11 +514,12 @@ private struct ReviewRow: View {
                 .foregroundStyle(theme.accent)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .card(radius: 8, highlighted: state.selectedItem?.id == item.id)
+            .padding(.vertical, 11)
+            // Full width against the window, so they take the slot's radius.
+            .card(radius: AppConfig.Radius.slot, highlighted: state.selectedItem?.id == item.id)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.99))
         .onHover { if $0 { state.select(item) } }
         .cardMenu(item)
     }
@@ -493,77 +529,72 @@ private struct BoardFooter: View {
     @Environment(AppState.self) private var state
     @Environment(\.theme) private var theme
     @Environment(\.typography) private var type
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let openSettings: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            if let notice = state.notice {
-                Image(systemName: "checkmark")
-                    .foregroundStyle(theme.accent)
-                Text(notice)
-                    .foregroundStyle(theme.dim)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            } else if let error = state.errorMessage, state.board != nil {
-                Image(systemName: "exclamationmark.triangle.fill")
+            ZStack(alignment: .leading) {
+                if let notice = state.notice {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(theme.good)
+                        Text(notice)
+                            .foregroundStyle(theme.dim)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .id(notice)
+                    .transition(.blurSwap(reduceMotion: reduceMotion))
+                } else if let error = state.errorMessage, state.board != nil {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(error).lineLimit(1)
+                    }
                     .foregroundStyle(theme.danger)
-                Text(error)
-                    .foregroundStyle(theme.danger)
-                    .lineLimit(1)
                     .help(error)
-            } else if let updated = state.lastUpdated {
-                let age = Age.short(from: updated, to: state.now)
-                Text(age == "now" ? "Updated just now" : "Updated \(age) ago")
-                Text("·")
-                if state.activityWindow == .all {
-                    Text("Merged and closed PRs leave on their own")
-                } else {
-                    Text("Active in the last \(state.activityWindow.label)")
+                    .transition(.blurSwap(reduceMotion: reduceMotion))
+                } else if let updated = state.lastUpdated {
+                    let age = Age.short(from: updated, to: state.now)
+                    HStack(spacing: 6) {
+                        Text(age == "now" ? "Updated just now" : "Updated \(age) ago")
+                        Text("·")
+                        if state.activityWindow == .all {
+                            Text("Merged and closed PRs leave on their own")
+                        } else {
+                            Text("Active in the last \(state.activityWindow.label)")
+                        }
+                    }
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .transition(.blurSwap(reduceMotion: reduceMotion))
                 }
             }
+            .animation(.smooth(duration: AppConfig.Motion.settle), value: state.notice)
             Spacer(minLength: 8)
-            HStack(spacing: 4) {
-                KeyCap("↩")
-                Text("open")
-                KeyCap("C").padding(.leading, 4)
-                Text("copy branch")
-                KeyCap(state.hotKey.display).padding(.leading, 4)
-                Text("show/hide")
+            Button {
+                state.perform(.showShortcuts)
+            } label: {
+                HStack(spacing: 6) {
+                    KeyCap("?")
+                    Text("Shortcuts")
+                }
+                .padding(.horizontal, 4)
+                .frame(height: 24)
+                .contentShape(Rectangle())
             }
-            .help("Arrow keys move between PRs. Tab switches tabs, R refreshes.")
-            Button(action: openSettings) {
+            .buttonStyle(.pressable)
+            .help("Every keyboard shortcut, searchable")
+            IconButton(help: "Settings (,)", action: openSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12.5))
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .help("Settings")
         }
         .font(type.ui(11.5))
         .foregroundStyle(theme.faint)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 7)
-    }
-}
-
-private struct KeyCap: View {
-    @Environment(\.theme) private var theme
-    @Environment(\.typography) private var type
-    private let label: String
-
-    init(_ label: String) {
-        self.label = label
-    }
-
-    var body: some View {
-        Text(label)
-            .font(type.ui(10.5, .medium))
-            .foregroundStyle(theme.dim)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(RoundedRectangle(cornerRadius: 4).fill(theme.control))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(theme.controlLine))
+        .padding(.leading, 16)
+        .padding(.trailing, 10)
+        .padding(.vertical, 5)
     }
 }
 

@@ -150,11 +150,17 @@ func run() async {
     snapshot(boardView, size: AppConfig.Window.boardSize, dark: false, padding: 40, to: "reviews.png")
     light.tab = .mine
 
+    light.perform(.move(.right))
+    light.perform(.move(.right))
+    light.perform(.showShortcuts)
+    snapshot(boardView, size: AppConfig.Window.boardSize, dark: false, padding: 40, to: "shortcuts.png")
+    light.perform(.showShortcuts)
+
     let settingsSize = AppConfig.Window.settingsSize
     let rounded = { (tab: SettingsTab) in
         ThemedRoot { SettingsView(tab: tab) }
             .environment(light)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: AppConfig.Window.cornerRadius, style: .continuous))
     }
     snapshot(rounded(.appearance), size: settingsSize, dark: false, padding: 40, to: "settings-appearance.png")
     snapshot(rounded(.tags), size: settingsSize, dark: false, padding: 40, to: "settings-tags.png")

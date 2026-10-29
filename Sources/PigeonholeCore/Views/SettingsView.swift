@@ -26,7 +26,8 @@ public struct SettingsView: View {
                     SegmentItem(id: SettingsTab.appearance, label: "Appearance"),
                     SegmentItem(id: SettingsTab.tags, label: "Tags"),
                 ],
-                selection: $tab
+                selection: $tab,
+                numberShortcuts: true
             )
             .padding(.top, 34)
             .padding(.bottom, 6)
@@ -38,9 +39,9 @@ public struct SettingsView: View {
                     case .tags: TagsPane()
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, AppConfig.Radius.settingsPadding)
                 .padding(.top, 10)
-                .padding(.bottom, 18)
+                .padding(.bottom, AppConfig.Radius.settingsPadding)
             }
         }
         .frame(width: AppConfig.Window.settingsSize.width, height: AppConfig.Window.settingsSize.height)
@@ -234,7 +235,7 @@ private struct HiddenCards: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel("Hidden")
             if state.hidden.isEmpty {
-                Text("Right click a card on the board to hide it. It'll wait here.")
+                Text("Right click a card, or select it and press X, to hide it. It'll wait here.")
                     .font(type.ui(11.5))
                     .foregroundStyle(theme.faint)
             } else {
@@ -279,8 +280,8 @@ private struct HotKeyRecorder: View {
                 .foregroundStyle(recording ? theme.accentSoftText : theme.text)
                 .padding(.horizontal, 12)
                 .frame(minWidth: 70, minHeight: 26)
-                .background(RoundedRectangle(cornerRadius: 6).fill(recording ? theme.accentSoft : theme.control))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(recording ? theme.accent : theme.controlLine))
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(recording ? theme.accentSoft : theme.control))
+                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(recording ? theme.accent : theme.ringStrong))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -334,7 +335,7 @@ private struct AppearancePane: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Font")
-                VStack(spacing: 4) {
+                VStack(spacing: 6) {
                     ForEach(FontPreset.all) { preset in
                         FontRow(preset: preset, selected: preset.id == state.fontPresetID) {
                             state.fontPresetID = preset.id
@@ -379,8 +380,8 @@ private struct ThemeCard: View {
                 }
                 .padding(5)
                 .frame(height: 44)
-                .background(RoundedRectangle(cornerRadius: 6).fill(option.window))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(option.line))
+                .background(RoundedRectangle(cornerRadius: AppConfig.Radius.themePreview, style: .continuous).fill(option.window))
+                .overlay(RoundedRectangle(cornerRadius: AppConfig.Radius.themePreview, style: .continuous).strokeBorder(option.ring))
                 HStack(alignment: .firstTextBaseline) {
                     Text(option.name).font(type.ui(12.5, .semibold))
                     Spacer()
@@ -395,12 +396,12 @@ private struct ThemeCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
-            .padding(8)
+            .padding(AppConfig.Radius.themeCardPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .card(highlighted: selected)
+            .card(radius: AppConfig.Radius.themeCard, highlighted: selected)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.98))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -428,13 +429,12 @@ private struct FontRow: View {
                     .font(Typography.font(preset.mono, 11.5, .regular, fallback: .monospaced))
                     .foregroundStyle(theme.dim)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? theme.accentSoft : theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? theme.accent : theme.cardLine))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .card(highlighted: selected, fill: selected ? theme.accentSoft : nil)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.99))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -462,10 +462,14 @@ private struct TagsPane: View {
                         .foregroundStyle(theme.accentText)
                         .padding(.horizontal, 11)
                         .frame(height: 28)
-                        .background(RoundedRectangle(cornerRadius: 7).fill(theme.accent))
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(theme.accent)
+                                .shadow(color: theme.lift, radius: 1, y: 1)
+                        )
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
             }
 
             if state.tags.isEmpty {
@@ -518,13 +522,14 @@ private struct TagPill: View {
                     .font(type.ui(11))
                     .foregroundStyle(theme.faint)
             }
+            .monospacedDigit()
             .padding(.horizontal, 11)
             .frame(height: 30)
-            .background(pill.fill(selected ? theme.accentSoft : theme.card))
-            .overlay(pill.strokeBorder(selected ? theme.accent : theme.cardLine))
+            .background(pill.fill(selected ? theme.accentSoft : theme.card).shadow(color: theme.lift, radius: 1, y: 1))
+            .overlay(pill.strokeBorder(selected ? theme.accent : theme.ring))
             .contentShape(pill)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -548,8 +553,8 @@ private struct TagEditor: View {
                 .font(type.ui(13))
                 .padding(.horizontal, 10)
                 .frame(height: 30)
-                .background(RoundedRectangle(cornerRadius: 7).fill(theme.window))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.controlLine))
+                .background(RoundedRectangle(cornerRadius: AppConfig.Radius.field, style: .continuous).fill(theme.window))
+                .overlay(RoundedRectangle(cornerRadius: AppConfig.Radius.field, style: .continuous).strokeBorder(theme.ringStrong))
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -582,8 +587,8 @@ private struct TagEditor: View {
                 .font(type.ui(12))
                 .foregroundStyle(theme.danger)
         }
-        .padding(14)
-        .card(radius: 10)
+        .padding(AppConfig.Radius.tagEditorPadding)
+        .card(radius: AppConfig.Radius.tagEditor)
     }
 
     private func fieldLabel(_ text: String) -> some View {
@@ -636,8 +641,8 @@ private struct RepoPicker: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 7).fill(theme.window))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.controlLine))
+            .background(RoundedRectangle(cornerRadius: AppConfig.Radius.field, style: .continuous).fill(theme.window))
+            .overlay(RoundedRectangle(cornerRadius: AppConfig.Radius.field, style: .continuous).strokeBorder(theme.ringStrong))
             if owners.count > 1 {
                 FlowLayout(spacing: 5) {
                     OwnerChip(label: "All", count: found.count, on: owner == nil) { owner = nil }
@@ -695,9 +700,9 @@ private struct RepoPicker: View {
             .padding(.bottom, 4)
         }
         .frame(height: AppConfig.Window.repoListHeight)
-        .background(RoundedRectangle(cornerRadius: 7).fill(theme.window))
-        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.controlLine))
-        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .background(RoundedRectangle(cornerRadius: AppConfig.Radius.field, style: .continuous).fill(theme.window))
+        .overlay(RoundedRectangle(cornerRadius: AppConfig.Radius.field, style: .continuous).strokeBorder(theme.ringStrong))
+        .clipShape(RoundedRectangle(cornerRadius: AppConfig.Radius.field, style: .continuous))
     }
 }
 
@@ -722,10 +727,10 @@ private struct OwnerChip: View {
             .padding(.horizontal, 9)
             .frame(height: 24)
             .background(pill.fill(on ? theme.accentSoft : theme.card))
-            .overlay(pill.strokeBorder(on ? theme.accent : theme.cardLine))
+            .overlay(pill.strokeBorder(on ? theme.accent : theme.ring))
             .contentShape(pill)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }

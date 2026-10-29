@@ -23,11 +23,15 @@ the menu bar.
   isn't pushed yet opens its clone in Finder. **⌥⌘P** (changeable) shows or
   hides the board from anywhere, and hiding it hands focus back to the app
   you were in.
-- **Right click a card** to hide it. Hidden cards are listed in Settings,
-  where you can bring them back.
-- **Keyboard driven.** Arrow keys move between cards, Return opens one, C
-  copies its branch, Tab (or 1 and 2) switches tabs, R refreshes, Escape
-  closes.
+- **Right click a card**, or select it and press X, to hide it. Hidden cards
+  are listed in Settings, where you can bring them back, and U brings back
+  the last one straight from the board.
+- **Keyboard driven.** Arrow keys (or H J K L) move between cards, Return
+  opens one, C copies its branch, X hides it and U brings it back. Tab (or 1
+  and 2) switches tabs, O and T step through the owner and tag filters, ⌫
+  clears them, R refreshes, comma opens Settings and Escape closes.
+- **Shortcut palette.** Press **?** for every shortcut in one searchable
+  list. Type to filter, then Return runs the one that's lit.
 - **Activity window.** By default only PRs with activity in the last 30 days,
   and branches with a commit in that time, show. You can pick 14, 60 or 90 days, a year, or everything.
 - Six themes, two light and four dark, plus six font pairs and three text
@@ -36,6 +40,8 @@ the menu bar.
 ![The Walnut theme](docs/screenshots/board-walnut.png)
 
 ![Reviews waiting on you](docs/screenshots/reviews.png)
+
+![The shortcut palette over the board](docs/screenshots/shortcuts.png)
 
 <p>
   <img src="docs/screenshots/settings-appearance.png" width="49%" alt="Appearance settings with six themes and font presets">

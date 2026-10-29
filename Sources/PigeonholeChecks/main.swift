@@ -393,6 +393,40 @@ check("keys map to commands, and ⌘ chords are left alone") {
     expect(BoardCommand(keyCode: kVK_Tab, modifiers: [], characters: "\t") == .switchTab, "tab")
     expect(BoardCommand(keyCode: kVK_ANSI_2, modifiers: [], characters: "2") == .showTab(.reviews), "2")
     expect(BoardCommand(keyCode: kVK_Escape, modifiers: [], characters: "\u{1b}") == nil, "escape")
+    expect(BoardCommand(keyCode: kVK_ANSI_J, modifiers: [], characters: "j") == .move(.down), "j")
+    expect(BoardCommand(keyCode: kVK_ANSI_H, modifiers: [], characters: "h") == .move(.left), "h")
+    expect(BoardCommand(keyCode: kVK_ANSI_Slash, modifiers: [.shift], characters: "?") == .showShortcuts, "?")
+    expect(BoardCommand(keyCode: kVK_ANSI_X, modifiers: [], characters: "x") == .hide, "x")
+    expect(BoardCommand(keyCode: kVK_Delete, modifiers: [], characters: "\u{7f}") == .clearFilters, "delete")
+    expect(BoardCommand(keyCode: kVK_ANSI_Comma, modifiers: [], characters: ",") == .openSettings, ",")
+}
+
+check("palette keys type into the filter, and arrows don't") {
+    expect(PaletteKey(keyCode: kVK_ANSI_K, modifiers: [], characters: "k") == .type("k"), "letters type")
+    expect(PaletteKey(keyCode: kVK_ANSI_K, modifiers: [.shift], characters: "K") == .type("K"), "shifted")
+    expect(PaletteKey(keyCode: kVK_LeftArrow, modifiers: [.function], characters: "\u{F702}") == nil, "left arrow")
+    expect(PaletteKey(keyCode: kVK_DownArrow, modifiers: [.function], characters: "\u{F701}") == .down, "down")
+    expect(PaletteKey(keyCode: kVK_ANSI_N, modifiers: [.control], characters: "\u{e}") == .down, "⌃N")
+    expect(PaletteKey(keyCode: kVK_Escape, modifiers: [], characters: "\u{1b}") == .close, "escape")
+    expect(PaletteKey(keyCode: kVK_ANSI_W, modifiers: [.command], characters: "w") == nil, "⌘W passes")
+}
+
+check("palette filters by every word and wraps its highlight") {
+    var palette = ShortcutPalette()
+    expect(palette.matches == Shortcut.all, "everything to start")
+    palette.type("filt")
+    expect(palette.matches.map(\.title) == ["Next owner filter", "Next tag filter", "Clear filters"], "\(palette.matches.map(\.title))")
+    palette.type(" tag")
+    expect(palette.highlighted?.command == .nextTag, "two words")
+    palette.erase()
+    palette.erase()
+    palette.erase()
+    palette.erase()
+    palette.move(by: -1)
+    expect(palette.highlighted?.command == .clearFilters, "up from the top wraps to the bottom")
+    palette.type("zzz")
+    expect(palette.highlighted == nil, "nothing matches")
+    expect(Set(Shortcut.all.map(\.id)).count == Shortcut.all.count, "titles are unique ids")
 }
 
 // MARK: - AppState against a fake GitHub
@@ -558,6 +592,68 @@ await check("cursor walks onto branch cards and copies their name") {
     await MainActor.run {
         state.perform(.move(.down))
         expect(state.selectedItem?.branchName == "solo", "branch selected")
+    }
+}
+
+await check("hide and undo by key, cycle filters, and the palette runs commands") {
+    let defaults = UserDefaults(suiteName: "pigeonhole-checks-\(UUID().uuidString)")!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pigeonhole-checks-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fake = FakeGitHub(board: Board(
+        viewer: "me",
+        mine: [
+            pr("draft", owner: "me", repo: "a", draft: true),
+            pr("other", owner: "org", repo: "x", draft: true),
+        ],
+        reviews: []
+    ))
+    let state = AppState(connect: { fake }, defaults: defaults, tagStore: TagStore(directory: directory))
+    await MainActor.run { state.activityWindow = .all }
+    await state.refresh()
+    await MainActor.run {
+        state.perform(.hide)
+        expect(state.hidden.isEmpty, "nothing selected, nothing hidden")
+        state.perform(.move(.down))
+        state.perform(.hide)
+        expect(state.visible(in: .inProgress).map(\.title) == ["other"], "hid the selected card")
+        expect(state.selectedItem?.title == "other", "cursor lands on the neighbour")
+        state.perform(.undoHide)
+        expect(state.hidden.isEmpty, "undo brings it back")
+        expect(state.selectedItem?.title == "draft", "and selects it")
+
+        state.perform(.nextOwner)
+        expect(state.filter.owner == .personal, "all → personal")
+        state.perform(.nextOwner)
+        expect(state.filter.owner == .owner("org"), "personal → org")
+        state.perform(.nextOwner)
+        expect(state.filter.owner == .all, "wraps")
+        let id = state.addTag()
+        state.perform(.nextTag)
+        expect(state.filter.tag == .tag(id), "any → first tag")
+        state.perform(.nextTag)
+        expect(state.filter.tag == .untagged, "→ untagged")
+        state.filter.owner = .personal
+        state.perform(.clearFilters)
+        expect(state.filter == BoardFilter(), "cleared")
+
+        state.perform(.showShortcuts)
+        expect(state.palette != nil, "? opens")
+        state.handle(.type("?"))
+        expect(state.palette == nil, "? closes while the filter is empty")
+        state.perform(.showShortcuts)
+        state.handle(.type("reviews"))
+        state.handle(.run)
+        expect(state.palette == nil && state.tab == .reviews, "running closes and performs")
+        var opened = false
+        state.onOpenSettings = { opened = true }
+        state.perform(.showShortcuts)
+        state.handle(.type("sett"))
+        state.handle(.run)
+        expect(opened, "settings through the app delegate")
+        state.perform(.showShortcuts)
+        state.boardDidOpen()
+        expect(state.palette == nil, "reopening the board starts closed")
     }
 }
 

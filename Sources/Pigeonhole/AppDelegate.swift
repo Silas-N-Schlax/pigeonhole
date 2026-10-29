@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         HotKeyCenter.shared.onPress = { [weak self] in self?.toggleBoard(returningFocus: true) }
         HotKeyCenter.shared.register(state.hotKey)
         state.onHotKeyChange = { HotKeyCenter.shared.register($0) }
+        state.onOpenSettings = { [weak self] in self?.showSettings() }
 
         watchBoardKeys()
         followState()
@@ -111,13 +112,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// A local monitor rather than SwiftUI's onKeyPress, which only hears
     /// keys while a view holds focus and loses Tab to focus navigation.
-    /// Escape falls through to the board's exit command.
+    /// Escape falls through to the board's exit command unless the shortcut
+    /// palette is open, in which case it closes the palette.
     private func watchBoardKeys() {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let command = BoardCommand(event: event) else { return event }
+            let command = BoardCommand(event: event)
+            let paletteKey = PaletteKey(event: event)
             let isBoard = event.window.map(ObjectIdentifier.init)
             let handled = MainActor.assumeIsolated {
                 guard let self, isBoard == ObjectIdentifier(self.board) else { return false }
+                if self.state.palette != nil {
+                    guard let paletteKey else { return false }
+                    self.state.handle(paletteKey)
+                    return true
+                }
+                guard let command else { return false }
                 self.state.perform(command)
                 return true
             }

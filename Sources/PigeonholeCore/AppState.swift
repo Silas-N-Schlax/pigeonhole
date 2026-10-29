@@ -29,6 +29,8 @@ public final class AppState {
     public var filter = BoardFilter()
     /// A short confirmation the footer shows in place of its usual line.
     public private(set) var notice: String?
+    /// Nil while the shortcut palette is closed.
+    public private(set) var palette: ShortcutPalette?
 
     public var themeID: String {
         didSet { defaults.set(themeID, forKey: AppConfig.Defaults.themeID) }
@@ -60,6 +62,8 @@ public final class AppState {
         }
     }
     public var onHotKeyChange: ((HotKey) -> Void)?
+    /// Settings is an AppKit window, so the app delegate opens it.
+    public var onOpenSettings: (() -> Void)?
     /// Where to look for clones whose branches have no PR yet.
     public var branchFolders: [String] {
         didSet {
@@ -172,6 +176,7 @@ public final class AppState {
         now = .now
         cursor = nil
         notice = nil
+        palette = nil
         let stale = lastUpdated.map { now.timeIntervalSince($0) > AppConfig.Refresh.staleAfter } ?? true
         if stale { Task { await refresh() } }
     }
@@ -332,13 +337,71 @@ public final class AppState {
             guard let item = selectedItem else { return }
             item.copyBranch()
             flash("Copied \(item.branchName)")
+        case .hide:
+            guard let item = selectedItem else { return }
+            hide(item)
+            flash("Hid \(item.label). U brings it back")
+        case .undoHide:
+            guard let last = hidden.last else { return }
+            unhide(last.id)
+            cursor = BoardCursor.on(last.id, in: columns) ?? cursor
+            flash("Brought back \(last.label)")
         case .switchTab:
             tab = tab == .mine ? .reviews : .mine
         case .showTab(let target):
             tab = target
+        case .nextOwner:
+            let owners: [OwnerFilter] = [.all, .personal] + otherOwners.map(OwnerFilter.owner)
+            filter.owner = owners.after(filter.owner)
+        case .nextTag:
+            let tags: [TagFilter] = [.any] + self.tags.map { .tag($0.id) } + [.untagged]
+            filter.tag = tags.after(filter.tag)
+        case .clearFilters:
+            filter = BoardFilter()
         case .refresh:
             Task { await refresh() }
+        case .openSettings:
+            palette = nil
+            onOpenSettings?()
+        case .showShortcuts:
+            palette = palette == nil ? ShortcutPalette() : nil
         }
+    }
+
+    public func handle(_ key: PaletteKey) {
+        guard var open = palette else { return }
+        switch key {
+        case .close:
+            palette = nil
+        case .up:
+            open.move(by: -1)
+            palette = open
+        case .down:
+            open.move(by: 1)
+            palette = open
+        case .run:
+            if let shortcut = open.highlighted { run(shortcut) }
+        case .erase:
+            open.erase()
+            palette = open
+        case .type(let text):
+            // The key that opened it closes it again, until you start typing.
+            if open.query.isEmpty, text == "?" {
+                palette = nil
+            } else {
+                open.type(text)
+                palette = open
+            }
+        }
+    }
+
+    public func run(_ shortcut: Shortcut) {
+        palette = nil
+        perform(shortcut.command)
+    }
+
+    public func highlight(_ shortcut: Shortcut) {
+        palette?.highlight(shortcut)
     }
 
     private func flash(_ text: String) {
@@ -470,4 +533,12 @@ public final class AppState {
 
 private extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+private extension Array where Element: Equatable {
+    /// The next element, wrapping, or the first when `current` isn't here.
+    func after(_ current: Element) -> Element {
+        guard let index = firstIndex(of: current) else { return self[0] }
+        return self[(index + 1) % count]
+    }
 }

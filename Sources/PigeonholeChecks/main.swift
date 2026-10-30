@@ -387,8 +387,8 @@ check("keys map to commands, and ⌘ chords are left alone") {
     expect(BoardCommand(keyCode: kVK_LeftArrow, modifiers: [.numericPad, .function], characters: nil)
         == .move(.left), "arrow")
     expect(BoardCommand(keyCode: kVK_Return, modifiers: [], characters: "\r") == .open, "return")
-    expect(BoardCommand(keyCode: kVK_ANSI_C, modifiers: [], characters: "c") == .copyBranch, "c")
-    expect(BoardCommand(keyCode: kVK_ANSI_C, modifiers: [.shift], characters: "C") == .copyBranch, "C")
+    expect(BoardCommand(keyCode: kVK_ANSI_C, modifiers: [], characters: "c") == .copy, "c")
+    expect(BoardCommand(keyCode: kVK_ANSI_C, modifiers: [.shift], characters: "C") == .copy, "C")
     expect(BoardCommand(keyCode: kVK_ANSI_C, modifiers: [.command], characters: "c") == nil, "⌘C")
     expect(BoardCommand(keyCode: kVK_Tab, modifiers: [], characters: "\t") == .switchTab, "tab")
     expect(BoardCommand(keyCode: kVK_ANSI_2, modifiers: [], characters: "2") == .showTab(.reviews), "2")
@@ -592,7 +592,29 @@ await check("cursor walks onto branch cards and copies their name") {
     await MainActor.run {
         state.perform(.move(.down))
         expect(state.selectedItem?.branchName == "solo", "branch selected")
+        expect(state.copyText(for: state.selectedItem!) == "solo", "off by default")
+        state.copiesTicketKey = true
+        expect(state.copyText(for: state.selectedItem!) == "solo", "no key, so the branch")
     }
+}
+
+check("ticket keys come from the front of the title, then the branch") {
+    func key(_ title: String, branch: String) -> String? {
+        BoardItem.pullRequest(PullRequest(
+            id: "x", number: 1, title: title, url: URL(string: "https://github.com/a/b/pull/1")!,
+            owner: "a", repo: "b", branch: branch, author: "me", isDraft: false, updatedAt: base,
+            reviewDecision: nil, pendingReviewers: 0, approvals: 0, unresolvedThreads: 0,
+            checks: .none, additions: 0, deletions: 0
+        )).ticketKey
+    }
+    expect(key("KATT-1234 Fix menus", branch: "menus") == "KATT-1234", "title prefix")
+    expect(key("[ABC-7]: Fix menus", branch: "menus") == "ABC-7", "bracketed, any prefix")
+    expect(key("Fix menus", branch: "feature/KATT-88-menus") == "KATT-88", "branch segment")
+    expect(key("Fix KATT-9 menus", branch: "menus") == nil, "mid-title doesn't count")
+    expect(key("Fix menus", branch: "katt-1234-menus") == "KATT-1234", "lowercase branch")
+    expect(key("Fix katt-9 menus", branch: "menus") == nil, "lowercase title isn't a key")
+    expect(key("Fix menus", branch: "release-1.1.0") == nil, "versions aren't keys")
+    expect(key("Fix menus", branch: "KATT-12") == "KATT-12", "whole branch")
 }
 
 await check("hide and undo by key, cycle filters, and the palette runs commands") {

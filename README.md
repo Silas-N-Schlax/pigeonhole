@@ -19,7 +19,9 @@ the menu bar.
   card. Filter by a tag or by Untagged. The repo picker lists every repo in
   your account and each of your orgs, searchable and filterable by owner.
 - **Click a card** to open the PR in your browser and copy its branch name.
-  A pushed branch opens GitHub's compare page, ready for its PR; one that
+  Turn on "Copy the ticket key" in Settings to copy a key like KATT-1234
+  instead, from the front of the PR title or else the branch; any
+  tracker's prefix works, and cards without one still copy the branch. A pushed branch opens GitHub's compare page, ready for its PR; one that
   isn't pushed yet opens its clone in Finder. **⌥⌘P** (changeable) shows or
   hides the board from anywhere, and hiding it hands focus back to the app
   you were in.
@@ -27,7 +29,7 @@ the menu bar.
   are listed in Settings, where you can bring them back, and U brings back
   the last one straight from the board.
 - **Keyboard driven.** Arrow keys (or H J K L) move between cards, Return
-  opens one, C copies its branch, X hides it and U brings it back. Tab (or 1
+  opens one, C copies its branch (or ticket key), X hides it and U brings it back. Tab (or 1
   and 2) switches tabs, O and T step through the owner and tag filters, ⌫
   clears them, R refreshes, comma opens Settings and Escape closes.
 - **Shortcut palette.** Press **?** for every shortcut in one searchable

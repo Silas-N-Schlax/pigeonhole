@@ -5,7 +5,7 @@ import Carbon.HIToolbox
 public enum BoardCommand: Equatable {
     case move(CursorMove)
     case open
-    case copyBranch
+    case copy
     case hide
     case undoHide
     case switchTab
@@ -48,7 +48,7 @@ public enum BoardCommand: Equatable {
                 case "j": self = .move(.down)
                 case "h": self = .move(.left)
                 case "l": self = .move(.right)
-                case "c": self = .copyBranch
+                case "c": self = .copy
                 case "x": self = .hide
                 case "u": self = .undoHide
                 case "o": self = .nextOwner
@@ -65,7 +65,7 @@ public enum BoardCommand: Equatable {
     /// Acts on the selected card, so does nothing until one is picked.
     public var needsCard: Bool {
         switch self {
-        case .open, .copyBranch, .hide: true
+        case .open, .copy, .hide: true
         default: false
         }
     }

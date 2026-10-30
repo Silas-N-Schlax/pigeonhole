@@ -281,7 +281,7 @@ private struct PRCard: View {
     var body: some View {
         let item = BoardItem.pullRequest(pr)
         Button {
-            item.openCopyingBranch()
+            state.open(item)
         } label: {
             VStack(alignment: .leading, spacing: 5) {
                 Text(pr.title)
@@ -337,7 +337,7 @@ private struct BranchCard: View {
     var body: some View {
         let item = BoardItem.branch(branch)
         Button {
-            item.openCopyingBranch()
+            state.open(item)
         } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -471,7 +471,7 @@ private struct ReviewRow: View {
     var body: some View {
         let item = BoardItem.pullRequest(pr)
         Button {
-            item.openCopyingBranch()
+            state.open(item)
         } label: {
             HStack(spacing: 12) {
                 Text(pr.author.prefix(2).uppercased())
@@ -618,7 +618,7 @@ private struct CardMenu: ViewModifier {
 
     func body(content: Content) -> some View {
         content.contextMenu {
-            Button("Copy branch name") { item.copyBranch() }
+            Button("Copy \(state.copyText(for: item))") { state.copy(item) }
             Divider()
             Button("Hide from board") { state.hide(item) }
         }

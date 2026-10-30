@@ -105,6 +105,7 @@ public enum AppConfig {
         public static let hotKey = "hotKey"
         public static let branchFolders = "branchFolders"
         public static let hidden = "hidden"
+        public static let copiesTicketKey = "copiesTicketKey"
     }
 
     public static var supportDirectory: URL {

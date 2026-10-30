@@ -19,7 +19,7 @@ public struct Shortcut: Identifiable, Equatable {
 
     public static let all: [Shortcut] = [
         Shortcut(command: .open, title: "Open in browser", keys: ["↩"], group: .card),
-        Shortcut(command: .copyBranch, title: "Copy branch name", keys: ["C"], group: .card),
+        Shortcut(command: .copy, title: "Copy branch or ticket key", keys: ["C"], group: .card),
         Shortcut(command: .hide, title: "Hide from board", keys: ["X"], group: .card),
         Shortcut(command: .undoHide, title: "Bring back last hidden", keys: ["U"], group: .card),
         Shortcut(command: .showTab(.mine), title: "Show My PRs", keys: ["1"], group: .board),

@@ -53,6 +53,11 @@ public final class AppState {
     public var activityWindow: ActivityWindow {
         didSet { defaults.set(activityWindow.rawValue, forKey: AppConfig.Defaults.activityWindow) }
     }
+    /// Copies a ticket key like KATT-1234 in place of the branch, when the
+    /// card has one.
+    public var copiesTicketKey: Bool {
+        didSet { defaults.set(copiesTicketKey, forKey: AppConfig.Defaults.copiesTicketKey) }
+    }
     public var hotKey: HotKey {
         didSet {
             if let data = try? JSONEncoder().encode(hotKey) {
@@ -120,6 +125,7 @@ public final class AppState {
         showActionDot = defaults.object(forKey: AppConfig.Defaults.showActionDot) as? Bool ?? true
         activityWindow = defaults.string(forKey: AppConfig.Defaults.activityWindow)
             .flatMap(ActivityWindow.init(rawValue:)) ?? .standard
+        copiesTicketKey = defaults.bool(forKey: AppConfig.Defaults.copiesTicketKey)
         hotKey = defaults.data(forKey: AppConfig.Defaults.hotKey)
             .flatMap { try? JSONDecoder().decode(HotKey.self, from: $0) } ?? .standard
         branchFolders = defaults.stringArray(forKey: AppConfig.Defaults.branchFolders) ?? Self.foundCodeFolders()
@@ -332,11 +338,11 @@ public final class AppState {
             cursor = cursor?.resolved(in: columns)?.moved(move, in: columns)
                 ?? BoardCursor.first(in: columns)
         case .open:
-            selectedItem?.openCopyingBranch()
-        case .copyBranch:
             guard let item = selectedItem else { return }
-            item.copyBranch()
-            flash("Copied \(item.branchName)")
+            open(item)
+        case .copy:
+            guard let item = selectedItem else { return }
+            copy(item)
         case .hide:
             guard let item = selectedItem else { return }
             hide(item)
@@ -457,6 +463,22 @@ public final class AppState {
     public var activeFilterTag: Tag? {
         guard case .tag(let id) = filter.tag else { return nil }
         return tags.first { $0.id == id }
+    }
+
+    // MARK: - Copying
+
+    public func copyText(for item: BoardItem) -> String {
+        copiesTicketKey ? item.ticketKey ?? item.branchName : item.branchName
+    }
+
+    public func open(_ item: BoardItem) {
+        item.open(copying: copyText(for: item))
+    }
+
+    public func copy(_ item: BoardItem) {
+        let text = copyText(for: item)
+        item.copy(text)
+        flash("Copied \(text)")
     }
 
     // MARK: - Hiding

@@ -131,6 +131,19 @@ private struct GeneralPane: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
+                    theme.cardLine.frame(height: 1)
+                    Toggle(isOn: $state.copiesTicketKey) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Copy the ticket key instead of the branch")
+                                .font(type.ui(13))
+                            Text("Like KATT-1234, from the front of the PR title or else the branch. Cards without one still copy their branch.")
+                                .font(type.ui(11.5))
+                                .foregroundStyle(theme.faint)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)

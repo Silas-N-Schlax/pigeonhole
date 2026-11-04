@@ -76,6 +76,11 @@ public final class AppState {
             Task { await rescanBranches() }
         }
     }
+    /// Globs like `backup/*` for branches that should never become cards. A
+    /// branch with a PR still shows, since the PR is its own card.
+    public var excludedBranchPatterns: [String] {
+        didSet { defaults.set(excludedBranchPatterns, forKey: AppConfig.Defaults.excludedBranchPatterns) }
+    }
     public private(set) var hidden: [HiddenItem] {
         didSet {
             if let data = try? JSONEncoder().encode(hidden) {
@@ -129,6 +134,7 @@ public final class AppState {
         hotKey = defaults.data(forKey: AppConfig.Defaults.hotKey)
             .flatMap { try? JSONDecoder().decode(HotKey.self, from: $0) } ?? .standard
         branchFolders = defaults.stringArray(forKey: AppConfig.Defaults.branchFolders) ?? Self.foundCodeFolders()
+        excludedBranchPatterns = defaults.stringArray(forKey: AppConfig.Defaults.excludedBranchPatterns) ?? []
         hidden = defaults.data(forKey: AppConfig.Defaults.hidden)
             .flatMap { try? JSONDecoder().decode([HiddenItem].self, from: $0) } ?? []
     }
@@ -278,6 +284,7 @@ public final class AppState {
         guard let heads = board?.heads else { return [] }
         return branches.filter {
             !heads.contains($0.id) && activityWindow.includes($0.updatedAt, now: now) && !isHidden($0.id)
+                && !BranchExclusions.matches($0.name, patterns: excludedBranchPatterns)
         }
     }
 

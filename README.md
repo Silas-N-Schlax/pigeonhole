@@ -56,7 +56,9 @@ other folder in your home that holds a clone), searched
 three folders deep for clones with a GitHub `origin`. A branch counts as
 yours when its newest commit's author matches the repo's `user.email`.
 Pigeonhole skips the default branch, branches whose upstream is gone, and
-any branch that has had a PR of yours, open, closed or merged. It reads with
+any branch that has had a PR of yours, open, closed or merged. Settings can
+also exclude branches by name with globs like `backup/*` or `*-old`, for
+branches that have no PR. It reads with
 `git for-each-ref` and never fetches, so pushes from other machines show up
 once your clone has fetched them.
 

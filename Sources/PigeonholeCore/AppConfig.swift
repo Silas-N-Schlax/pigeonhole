@@ -106,6 +106,7 @@ public enum AppConfig {
         public static let branchFolders = "branchFolders"
         public static let hidden = "hidden"
         public static let copiesTicketKey = "copiesTicketKey"
+        public static let excludedBranchPatterns = "excludedBranchPatterns"
     }
 
     public static var supportDirectory: URL {

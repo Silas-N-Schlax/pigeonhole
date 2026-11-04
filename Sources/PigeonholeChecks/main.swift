@@ -598,6 +598,41 @@ await check("cursor walks onto branch cards and copies their name") {
     }
 }
 
+check("branch exclusions are case-insensitive globs where * crosses slashes") {
+    let patterns = ["backup/*", "*-old"]
+    expect(BranchExclusions.matches("backup/feature/x", patterns: patterns), "prefix")
+    expect(BranchExclusions.matches("Menus-OLD", patterns: patterns), "suffix, any case")
+    expect(!BranchExclusions.matches("old-menus", patterns: patterns), "must match whole name")
+    expect(!BranchExclusions.matches("backups", patterns: patterns), "no partial match")
+    expect(!BranchExclusions.matches("anything", patterns: []), "no patterns excludes nothing")
+}
+
+await check("excluded branches leave the board, but a PR on one stays") {
+    let defaults = UserDefaults(suiteName: "pigeonhole-checks-\(UUID().uuidString)")!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pigeonhole-checks-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let open = PullRequest(
+        id: "open", number: 2, title: "open", url: URL(string: "https://github.com/me/a/pull/2")!,
+        owner: "me", repo: "a", branch: "backup/has-pr", author: "me", isDraft: true,
+        updatedAt: base.addingTimeInterval(10), reviewDecision: nil, pendingReviewers: 0,
+        approvals: 0, unresolvedThreads: 0, checks: .none, additions: 0, deletions: 0
+    )
+    let fake = FakeGitHub(board: Board(viewer: "me", mine: [open], reviews: [], closedHeads: []))
+    let scanned = [branch("backup/has-pr"), branch("backup/old"), branch("fresh")]
+    let state = AppState(
+        connect: { fake }, defaults: defaults, tagStore: TagStore(directory: directory),
+        scanBranches: { _ in scanned }
+    )
+    await state.refresh()
+    await MainActor.run {
+        state.activityWindow = .all
+        expect(state.visible(in: .inProgress).map(\.title) == ["open", "backup/old", "fresh"], "off by default")
+        state.excludedBranchPatterns = ["backup/*"]
+        expect(state.visible(in: .inProgress).map(\.title) == ["open", "fresh"], "excluded branch gone, PR kept")
+    }
+}
+
 check("ticket keys come from the front of the title, then the branch") {
     func key(_ title: String, branch: String) -> String? {
         BoardItem.pullRequest(PullRequest(

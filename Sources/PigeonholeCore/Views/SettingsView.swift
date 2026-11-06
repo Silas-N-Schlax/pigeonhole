@@ -114,6 +114,8 @@ private struct GeneralPane: View {
 
             BranchFolders()
 
+            ExcludedBranches()
+
             HiddenCards()
 
             VStack(alignment: .leading, spacing: 8) {
@@ -236,6 +238,75 @@ private struct BranchFolders: View {
         guard panel.runModal() == .OK else { return }
         let picked = panel.urls.map(\.path).filter { !state.branchFolders.contains($0) }
         state.branchFolders += picked
+    }
+}
+
+/// Globs for branches that never become cards, like backup branches.
+private struct ExcludedBranches: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.theme) private var theme
+    @Environment(\.typography) private var type
+    @State private var draft = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("Exclude branches")
+            VStack(spacing: 0) {
+                ForEach(state.excludedBranchPatterns, id: \.self) { pattern in
+                    HStack(spacing: 8) {
+                        Text(pattern)
+                            .font(type.mono(12))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 6)
+                        Button {
+                            state.excludedBranchPatterns.removeAll { $0 == pattern }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(theme.faint)
+                                .frame(width: 20, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Stop excluding this")
+                        .accessibilityLabel("Remove \(pattern)")
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    theme.cardLine.frame(height: 1)
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                    TextField("backup/*", text: $draft)
+                        .textFieldStyle(.plain)
+                        .font(type.mono(12))
+                        .onSubmit(add)
+                    Button("Add", action: add)
+                        .buttonStyle(.plain)
+                        .font(type.ui(12, .medium))
+                        .foregroundStyle(theme.accent)
+                        .disabled(trimmed.isEmpty)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+            }
+            .card()
+            Text("Branches without a PR whose name matches stay off the board. * matches anything, so backup/* or *-old. Case is ignored.")
+                .font(type.ui(11.5))
+                .foregroundStyle(theme.faint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var trimmed: String { draft.trimmingCharacters(in: .whitespaces) }
+
+    private func add() {
+        guard !trimmed.isEmpty else { return }
+        if !state.excludedBranchPatterns.contains(trimmed) { state.excludedBranchPatterns.append(trimmed) }
+        draft = ""
     }
 }
 
